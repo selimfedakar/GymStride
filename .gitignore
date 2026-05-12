@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+
+# Environment — never commit real secrets
+.env
+*.env.local
+
+# EAS credentials
+credentials.json
+google-play-service-account.json
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+*.swp
+
+# Internal notes (not for public repo)
+store-assets/
