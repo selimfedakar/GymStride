@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GymStride — App Store Mockups</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0D0D0D;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      min-height: 100vh;
+      padding: 48px 32px;
+    }
+
+    /* ── Page header ── */
+    .page-header {
+      text-align: center;
+      margin-bottom: 56px;
+    }
+    .page-header h1 {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: #FF6B35;
+      margin-bottom: 12px;
+    }
+    .page-header h2 {
+      font-size: 36px;
+      font-weight: 900;
+      color: #FFFFFF;
+      letter-spacing: -0.02em;
+    }
+    .page-header p {
+      font-size: 14px;
+      color: #555;
+      margin-top: 8px;
+      letter-spacing: 0.05em;
+    }
+
+    /* ── Grid ── */
+    .mockup-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 32px;
+      justify-content: center;
+    }
+
+    /* ── Canvas: exactly 414 × 896 (Apple 6.5" requirement) ── */
+    .mockup-canvas {
+      width: 414px;
+      height: 896px;
+      background: #0A0A0A;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 36px 20px 28px;
+      position: relative;
+      overflow: hidden;
+      border-radius: 24px;
+      border: 1px solid rgba(255,255,255,0.04);
+    }
+
+    /* Subtle top accent glow */
+    .mockup-canvas::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 200px;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, #FF6B35 40%, #FF6B35 60%, transparent);
+      opacity: 0.6;
+      border-radius: 0 0 4px 4px;
+    }
+
+    /* ── Slogan text ── */
+    .slogan-area {
+      width: 100%;
+      text-align: center;
+      margin-bottom: 24px;
+      flex-shrink: 0;
+    }
+    .slogan-tag {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #FF6B35;
+      margin-bottom: 8px;
+    }
+    .slogan-title {
+      font-size: 17px;
+      font-weight: 800;
+      color: #FFFFFF;
+      line-height: 1.25;
+      letter-spacing: -0.02em;
+    }
+    .slogan-sub {
+      font-size: 11.5px;
+      font-weight: 500;
+      color: rgba(255,255,255,0.38);
+      margin-top: 5px;
+      line-height: 1.5;
+      letter-spacing: 0.01em;
+    }
+
+    /* ── iPhone 16 Pro frame ── */
+    .iphone-wrap {
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .iphone-outer {
+      width: 268px;
+      height: 578px;
+      background: linear-gradient(160deg, #3A3A3C 0%, #1C1C1E 50%, #2C2C2E 100%);
+      border-radius: 46px;
+      padding: 9px;
+      position: relative;
+      box-shadow:
+        0 0 0 0.5px rgba(255,255,255,0.18),
+        inset 0 0 0 0.5px rgba(255,255,255,0.08),
+        0 50px 100px rgba(0,0,0,0.85),
+        0 25px 50px rgba(0,0,0,0.55),
+        0 8px 16px rgba(0,0,0,0.4);
+    }
+
+    /* Left side: mute toggle + 2 volume buttons */
+    .iphone-btn-left {
+      position: absolute;
+      left: -5px;
+      top: 0;
+      width: 5px;
+      height: 100%;
+      pointer-events: none;
+    }
+    .iphone-btn-left::before { /* mute */
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 96px;
+      width: 3.5px;
+      height: 28px;
+      background: linear-gradient(180deg, #3A3A3C, #2A2A2C);
+      border-radius: 2px 0 0 2px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);
+    }
+    .iphone-btn-left::after { /* volume up + volume down (using box-shadow) */
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 142px;
+      width: 3.5px;
+      height: 46px;
+      background: linear-gradient(180deg, #3A3A3C, #2A2A2C);
+      border-radius: 2px 0 0 2px;
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.1),
+        0 60px 0 #3A3A3C,
+        0 61px 0 rgba(255,255,255,0.08);
+    }
+
+    /* Right side: power button */
+    .iphone-btn-right {
+      position: absolute;
+      right: -5px;
+      top: 0;
+      width: 5px;
+      height: 100%;
+      pointer-events: none;
+    }
+    .iphone-btn-right::after {
+      content: '';
+      position: absolute;
+      right: 0;
+      top: 148px;
+      width: 3.5px;
+      height: 72px;
+      background: linear-gradient(180deg, #3A3A3C, #2A2A2C);
+      border-radius: 0 2px 2px 0;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);
+    }
+
+    /* Inner screen */
+    .iphone-screen {
+      width: 100%;
+      height: 100%;
+      background: #000;
+      border-radius: 38px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .iphone-screen img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: top center;
+      display: block;
+    }
+
+    /* Dynamic Island */
+    .dynamic-island {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 88px;
+      height: 26px;
+      background: #000;
+      border-radius: 20px;
+      z-index: 20;
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.04);
+    }
+
+    /* Screen edge gloss */
+    .iphone-screen::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 38px;
+      background: linear-gradient(135deg, rgba(255,255,255,0.07) 0%, transparent 40%);
+      pointer-events: none;
+      z-index: 30;
+    }
+
+    /* ── Bottom badge ── */
+    .canvas-footer {
+      position: absolute;
+      bottom: 18px;
+      left: 0;
+      right: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .canvas-footer span {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.15);
+    }
+    .canvas-footer .dot {
+      width: 3px;
+      height: 3px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.12);
+    }
+
+    /* ── Export bar ── */
+    .export-bar {
+      position: fixed;
+      bottom: 32px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: rgba(18,18,18,0.92);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 100px;
+      padding: 10px 10px 10px 20px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.7);
+      z-index: 1000;
+    }
+    .export-bar span {
+      font-size: 13px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.55);
+      white-space: nowrap;
+    }
+    .btn-export-all {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #FF6B35;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      border: none;
+      border-radius: 100px;
+      padding: 10px 20px;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.15s;
+      white-space: nowrap;
+    }
+    .btn-export-all:hover { opacity: 0.88; transform: scale(1.02); }
+    .btn-export-all:active { transform: scale(0.97); }
+    .btn-export-all:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+    .export-progress {
+      font-size: 12px;
+      font-weight: 600;
+      color: #FF6B35;
+      display: none;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Page Header -->
+  <div class="page-header">
+    <h1>GymStride</h1>
+    <h2>App Store Screenshots</h2>
+    <p>6.5" Display · iPhone 16 Pro · 414 × 896 px per canvas</p>
+  </div>
+
+  <!-- Mockup Grid -->
+  <div class="mockup-grid">
+
+    <!-- ① Gym Buddies -->
+    <div class="mockup-canvas">
+      <div class="slogan-area">
+        <span class="slogan-tag">Discover</span>
+        <div class="slogan-title">Connect with Your Gym Crew</div>
+        <div class="slogan-sub">Find fitness partners instantly — real gym-goers near you.</div>
+      </div>
+      <div class="iphone-wrap">
+        <div class="iphone-outer">
+          <div class="iphone-btn-left"></div>
+          <div class="iphone-btn-right"></div>
+          <div class="iphone-screen">
+            <div class="dynamic-island"></div>
+            <img src="gymstride_mockup/IMG_2823.PNG" alt="Gym Buddies screen" />
+          </div>
+        </div>
+      </div>
+      <div class="canvas-footer">
+        <span>GymStride</span><div class="dot"></div><span>iOS</span>
+      </div>
+    </div>
+
+    <!-- ② Running Buddies -->
+    <div class="mockup-canvas">
+      <div class="slogan-area">
+        <span class="slogan-tag">Running</span>
+        <div class="slogan-title">Find Your Perfect Running Partner</div>
+        <div class="slogan-sub">Filter by pace, run type, and distance. Your stride, your rules.</div>
+      </div>
+      <div class="iphone-wrap">
+        <div class="iphone-outer">
+          <div class="iphone-btn-left"></div>
+          <div class="iphone-btn-right"></div>
+          <div class="iphone-screen">
+            <div class="dynamic-island"></div>
+            <img src="gymstride_mockup/IMG_2824.PNG" alt="Running Buddies screen" />
+          </div>
+        </div>
+      </div>
+      <div class="canvas-footer">
+        <span>GymStride</span><div class="dot"></div><span>iOS</span>
+      </div>
+    </div>
+
+    <!-- ③ Log Workout -->
+    <div class="mockup-canvas">
+      <div class="slogan-area">
+        <span class="slogan-tag">Track</span>
+        <div class="slogan-title">Track Every Set &amp; Rep</div>
+        <div class="slogan-sub">Pure performance tracking without clutter. Log. Earn. Repeat.</div>
+      </div>
+      <div class="iphone-wrap">
+        <div class="iphone-outer">
+          <div class="iphone-btn-left"></div>
+          <div class="iphone-btn-right"></div>
+          <div class="iphone-screen">
+            <div class="dynamic-island"></div>
+            <img src="gymstride_mockup/IMG_2825.PNG" alt="Log Workout screen" />
+          </div>
+        </div>
+      </div>
+      <div class="canvas-footer">
+        <span>GymStride</span><div class="dot"></div><span>iOS</span>
+      </div>
+    </div>
+
+    <!-- ④ Send Request (profile detail) -->
+    <div class="mockup-canvas">
+      <div class="slogan-area">
+        <span class="slogan-tag">Connect</span>
+        <div class="slogan-title">Make Your Move</div>
+        <div class="slogan-sub">One personalized request. One tap. Your next gym partner awaits.</div>
+      </div>
+      <div class="iphone-wrap">
+        <div class="iphone-outer">
+          <div class="iphone-btn-left"></div>
+          <div class="iphone-btn-right"></div>
+          <div class="iphone-screen">
+            <div class="dynamic-island"></div>
+            <img src="gymstride_mockup/IMG_2827.PNG" alt="Send Request screen" />
+          </div>
+        </div>
+      </div>
+      <div class="canvas-footer">
+        <span>GymStride</span><div class="dot"></div><span>iOS</span>
+      </div>
+    </div>
+
+    <!-- ⑤ Messages Inbox -->
+    <div class="mockup-canvas">
+      <div class="slogan-area">
+        <span class="slogan-tag">Messages</span>
+        <div class="slogan-title">Stay in Sync</div>
+        <div class="slogan-sub">Real-time chat with your fitness community. No noise, just results.</div>
+      </div>
+      <div class="iphone-wrap">
+        <div class="iphone-outer">
+          <div class="iphone-btn-left"></div>
+          <div class="iphone-btn-right"></div>
+          <div class="iphone-screen">
+            <div class="dynamic-island"></div>
+            <img src="gymstride_mockup/IMG_2828.PNG" alt="Messages inbox screen" />
+          </div>
+        </div>
+      </div>
+      <div class="canvas-footer">
+        <span>GymStride</span><div class="dot"></div><span>iOS</span>
+      </div>
+    </div>
+
+    <!-- ⑥ Profile -->
+    <div class="mockup-canvas">
+      <div class="slogan-area">
+        <span class="slogan-tag">Profile</span>
+        <div class="slogan-title">Own Your Journey</div>
+        <div class="slogan-sub">Badges, stats, and your fitness identity — all in one place.</div>
+      </div>
+      <div class="iphone-wrap">
+        <div class="iphone-outer">
+          <div class="iphone-btn-left"></div>
+          <div class="iphone-btn-right"></div>
+          <div class="iphone-screen">
+            <div class="dynamic-island"></div>
+            <img src="gymstride_mockup/IMG_2829.PNG" alt="Profile screen" />
+          </div>
+        </div>
+      </div>
+      <div class="canvas-footer">
+        <span>GymStride</span><div class="dot"></div><span>iOS</span>
+      </div>
+    </div>
+
+  </div><!-- /mockup-grid -->
+
+  <!-- Export Bar -->
+  <div class="export-bar">
+    <span>6 mockup · 414 × 896 px</span>
+    <span class="export-progress" id="exportProgress">Exporting…</span>
+    <button class="btn-export-all" id="btnExportAll" onclick="exportAll()">
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+        <path d="M7.5 1v9M4 7l3.5 3.5L11 7M2 13h11" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Export All PNGs
+    </button>
+  </div>
+
+  <script>
+    async function exportAll() {
+      const btn      = document.getElementById('btnExportAll');
+      const progress = document.getElementById('exportProgress');
+      const canvases = document.querySelectorAll('.mockup-canvas');
+
+      const labels = [
+        '01_gym-buddies',
+        '02_running-buddies',
+        '03_log-workout',
+        '04_send-request',
+        '05_messages',
+        '06_profile',
+      ];
+
+      btn.disabled = true;
+      btn.textContent = 'Exporting…';
+      progress.style.display = 'block';
+
+      for (let i = 0; i < canvases.length; i++) {
+        progress.textContent = `${i + 1} / ${canvases.length} exporting…`;
+
+        const c = await html2canvas(canvases[i], {
+          scale: 3,           // 3× → 1242 × 2688 px (Apple exact requirement)
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: '#0A0A0A',
+          logging: false,
+          width: 414,
+          height: 896,
+        });
+
+        const link = document.createElement('a');
+        link.download = `GymStride_${labels[i]}.png`;
+        link.href = c.toDataURL('image/png');
+        link.click();
+
+        // Small delay so downloads don't collide
+        await new Promise(r => setTimeout(r, 350));
+      }
+
+      progress.textContent = '✓ Done!';
+      setTimeout(() => {
+        progress.style.display = 'none';
+        btn.disabled = false;
+        btn.innerHTML = `
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+            <path d="M7.5 1v9M4 7l3.5 3.5L11 7M2 13h11" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Export All PNGs`;
+      }, 2000);
+    }
+  </script>
+
+</body>
+</html>
