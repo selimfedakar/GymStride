@@ -65,7 +65,7 @@ export async function fetchProfile(userId: string): Promise<Profile | null> {
 export async function createProfile(profile: ProfileInsert): Promise<Profile> {
   const { data, error } = await supabase
     .from('profiles')
-    .insert(profile)
+    .upsert(profile, { onConflict: 'id' })
     .select()
     .single()
   if (error) throw error
