@@ -33,8 +33,10 @@ export interface Profile {
   location_name:     string | null
   university_id:     string | null
   experience_level:  ExperienceLevel
-  is_active:         boolean
-  last_active_at:    string
+  is_active:            boolean
+  is_admin:             boolean
+  onboarding_completed: boolean
+  last_active_at:       string
   created_at:        string
   updated_at:        string
 }
