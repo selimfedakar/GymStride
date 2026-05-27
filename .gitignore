@@ -13,6 +13,10 @@ web-build/
 # EAS credentials
 credentials.json
 google-play-service-account.json
+store.config.json
+
+# App review seed (contains demo credentials)
+supabase/seed_review_account.sql
 
 # macOS
 .DS_Store
