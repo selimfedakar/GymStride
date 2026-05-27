@@ -1,7 +1,8 @@
 {
   "cli": {
     "version": ">= 10.0.0",
-    "requireCommit": false
+    "requireCommit": false,
+    "appVersionSource": "remote"
   },
   "build": {
     "development": {
@@ -15,9 +16,11 @@
         "buildType": "apk",
         "gradleCommand": ":app:assembleDebug"
       },
-      "env": {}
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://vptaiwqwalxinyatybhm.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_Rqjnj1Ks6tcd8S95u7rtmw_gYl0RcjX"
+      }
     },
-
     "preview": {
       "distribution": "internal",
       "channel": "preview",
@@ -27,9 +30,11 @@
       "android": {
         "buildType": "apk"
       },
-      "env": {}
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://vptaiwqwalxinyatybhm.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_Rqjnj1Ks6tcd8S95u7rtmw_gYl0RcjX"
+      }
     },
-
     "production": {
       "autoIncrement": true,
       "channel": "production",
@@ -39,16 +44,18 @@
       "android": {
         "buildType": "app-bundle"
       },
-      "env": {}
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://vptaiwqwalxinyatybhm.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_Rqjnj1Ks6tcd8S95u7rtmw_gYl0RcjX"
+      }
     }
   },
-
   "submit": {
     "production": {
       "ios": {
         "appleId": "a.selimfedakar@gmail.com",
-        "ascAppId": "REPLACE_WITH_APP_STORE_CONNECT_APP_ID",
-        "appleTeamId": "REPLACE_WITH_APPLE_TEAM_ID"
+        "ascAppId": "6769993847",
+        "appleTeamId": "PAST7W47P5"
       },
       "android": {
         "serviceAccountKeyPath": "./google-play-service-account.json",
