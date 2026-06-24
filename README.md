@@ -1,47 +1,56 @@
+<div align="center">
+
 # GymStride
 
-A location-aware iOS app for finding workout partners — at the gym or on a run. You browse nearby profiles, send a personal chat request, and once they accept, you're talking in real time.
+### Find your workout partner — at the gym or on the run.
 
-Built end-to-end as a solo senior project: React Native frontend, Supabase backend, shipped via EAS to the App Store.
+*Browse nearby lifters and runners, send a personal chat request, and the moment they accept you're talking in real time.*
 
-**Live on the App Store:** https://apps.apple.com/us/app/gymstride/id6769993847
+<!-- Drop a banner/hero image at docs/assets/banner.png and it will render here -->
+<img src="docs/assets/banner.png" alt="GymStride — find your workout partner" width="720"/>
 
----
+[![App Store](https://img.shields.io/badge/App%20Store-Download-0D96F6?logo=apple&logoColor=white)](https://apps.apple.com/us/app/gymstride/id6769993847)
+![React Native](https://img.shields.io/badge/React%20Native-0.81-61DAFB?logo=react&logoColor=black)
+![Expo](https://img.shields.io/badge/Expo%20SDK-54-000020?logo=expo&logoColor=white)
+![Supabase](https://img.shields.io/badge/Supabase-Postgres%20·%20Realtime-3ECF8E?logo=supabase&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
-## Features
+**Live on the App Store →** <https://apps.apple.com/us/app/gymstride/id6769993847>
 
-- Discover gym-goers and runners nearby, filtered by workout type
-- Send a personal chat request with a note — no cold follows, no random DMs
-- Real-time 1:1 messaging the moment a request is accepted
-- Log workouts (gym, long run, short run, sprint) and earn streak badges
-- Push notifications for new messages and incoming requests
-
----
-
-## Stack
-
-| Layer | Technology |
-|---|---|
-| Mobile | React Native 0.81 / Expo SDK 54 |
-| Routing | Expo Router v6 (file-based, typed) |
-| Backend | Supabase — PostgreSQL, Auth, Realtime, Storage |
-| State | Zustand |
-| Server state | TanStack Query v5 |
-| Gestures | react-native-gesture-handler |
-| Keyboard | react-native-keyboard-controller |
-| Notifications | expo-notifications + APNs |
-| Build & submit | EAS Build + EAS Submit |
-| Language | TypeScript throughout |
+</div>
 
 ---
 
-## Architecture
+## What GymStride is
 
-### Row Level Security
+GymStride is a location-aware iOS app for meeting people to train with. You see who's
+nearby — filtered by what they're into, gym or running — send one **personal chat
+request** with a note, and once they accept you drop straight into **real-time 1:1
+messaging**. No cold follows, no public DMs, no swiping.
 
-Every table is locked down with PostgreSQL RLS. Users read only what they're authorized to: profiles within their region, conversations they participate in, messages inside those conversations. No server middleware enforcing access control — the database does it.
+Built end-to-end as a solo senior project: React Native frontend, Supabase backend,
+shipped through EAS Build and **live on the App Store** after passing App Review.
 
-One hard-learned detail: cross-table RLS policies on `conversation_participants` trigger infinite recursion in Postgres's policy evaluator (error `42P17`). The solution is a `SECURITY DEFINER` function that steps outside RLS for internal lookups. I spent a full day on this before finding the pattern.
+> The hard parts of this project weren't the product logic — they were the
+> infrastructure: database-enforced access control, real-time plumbing, and the gap
+> between "works on localhost" and "passes App Review."
+
+---
+
+## The one idea that makes it work: the database is the backend
+
+GymStride has **no application server**. There is no Node API enforcing who can read
+what, no middleware layer checking permissions on every request. Every access rule —
+*you only see profiles in your region, only read conversations you're a part of, only
+write your own messages* — is enforced by **PostgreSQL Row Level Security** right where
+the data lives. The mobile app talks to Supabase directly; the database says no.
+
+That keeps the surface tiny and impossible to bypass, but it pushes all the difficulty
+into the policy layer. The sharpest edge: a cross-table RLS policy on
+`conversation_participants` sends Postgres's policy evaluator into **infinite recursion**
+(error `42P17`). The fix is a `SECURITY DEFINER` function that steps *outside* RLS for
+internal lookups — a full day of debugging a vague recursion error with no stack trace.
 
 ```sql
 -- participants can read only their own rows
@@ -53,34 +62,116 @@ create policy "participants: read own"
 -- (direct writes to conversations are blocked for regular users)
 create or replace function accept_chat_request(p_request_id uuid)
 returns uuid language plpgsql security definer as $$
-...
+  ...
 $$;
 ```
 
-### Real-time Messaging
+---
 
-Supabase Realtime subscribes to `INSERT` events on `messages`, scoped by `conversation_id`. No polling, no custom WebSocket server. The subscription is set up on mount and torn down on unmount — one channel per open conversation.
+## Architecture in one glance
 
-### Chat Request Flow
+```mermaid
+flowchart TB
+    subgraph APP[iOS App · Expo / React Native]
+        UI[Discover · Requests · Chat<br/>Workouts · Profile]
+        Z[Zustand + TanStack Query]
+        UI <--> Z
+    end
+    subgraph SB[Supabase]
+        AUTH[Auth]
+        DB[(PostgreSQL<br/>+ Row Level Security)]
+        RT[Realtime]
+        FN[Edge Functions]
+        ST[Storage]
+    end
+    APNS[APNs push]
+    Z <-->|direct, RLS-guarded| DB
+    Z <--> AUTH
+    Z <-->|subscribe INSERT on messages| RT
+    DB -->|new message / request| FN
+    FN -->|deliver| APNS
+    UI <--> ST
+```
+
+Access control lives in the database, not in a server. The app is a direct,
+RLS-guarded client.
+
+---
+
+## The chat request flow
 
 ```
 Requester  →  INSERT chat_request  (status: pending)
 
 Recipient  →  accept:  RPC creates conversation + participants rows
-           →  decline: RPC deletes request row
+           →  decline: RPC deletes the request row
 
 Requester  →  cancel:  DELETE policy on own pending requests
 ```
 
-Rate limiting is enforced at the database level: a count query on `chat_requests` filtered to `created_at >= now() - interval '24 hours'` before the modal opens. No rate-limit infrastructure needed.
-
-### Push Notifications
-
-Device push tokens are stored in a `push_tokens` table, registered on login and removed on logout. A Supabase Edge Function fires on new messages and chat requests, delivering to APNs.
+**Rate limiting is a query, not infrastructure:** before the request modal opens, a count
+on `chat_requests` filtered to `created_at >= now() - interval '24 hours'` decides whether
+you're allowed to send another. No queue, no Redis, no rate-limit service.
 
 ---
 
-## Running Locally
+## Repository layout
+
+```
+gymstride/
+├── app/                  # Expo Router v6 — file-based, typed routes
+│   ├── (tabs)/           # discover · requests · chat · workouts · profile
+│   ├── chat/[id].tsx     # 1:1 conversation screen (realtime)
+│   └── auth/             # sign in / sign up
+├── src/
+│   ├── lib/              # supabase client · session
+│   ├── stores/           # Zustand state
+│   ├── queries/          # TanStack Query hooks
+│   └── components/       # shared UI
+├── supabase/
+│   ├── migrations/       # schema + RLS policies + RPC functions
+│   └── functions/        # Edge Functions (push on message / request)
+└── assets/
+```
+
+---
+
+## What GymStride does today
+
+| Capability | State | Notes |
+|---|---|---|
+| Nearby discovery | Done | Location-aware, filtered by workout type. |
+| Personal chat requests | Done | One request + a note; no cold follows. |
+| Real-time 1:1 messaging | Done | Supabase Realtime `INSERT` subscription, no polling. |
+| Accept / decline / cancel | Done | `SECURITY DEFINER` RPCs, RLS-guarded. |
+| Workout logging | Done | Gym · long run · short run · sprint. |
+| Streak badges | Done | Earned from logged workouts. |
+| Push notifications | Done | Edge Function → APNs on message / request. |
+| Row Level Security | Done | Every table; the database is the access layer. |
+| App Store release | Done | Live, passed App Review. |
+
+---
+
+## Stack
+
+| Layer | Technology |
+|---|---|
+| Mobile | React Native 0.81 / Expo SDK 54 |
+| Routing | Expo Router v6 (file-based, typed) |
+| Backend | Supabase — PostgreSQL, Auth, Realtime, Storage |
+| Client state | Zustand |
+| Server state | TanStack Query v5 |
+| Gestures | react-native-gesture-handler |
+| Keyboard | react-native-keyboard-controller |
+| Notifications | expo-notifications + APNs |
+| Build & submit | EAS Build + EAS Submit |
+| Language | TypeScript throughout |
+
+---
+
+## Running locally
+
+Requires **Node 18+** and the Expo tooling.
 
 ```bash
 git clone https://github.com/selimfedakar/gymstride.git
@@ -91,13 +182,27 @@ cp .env.example .env
 npx expo start
 ```
 
-Apply the migrations in `supabase/migrations/` in order using Supabase's SQL editor. The Edge Functions in `supabase/functions/` deploy via the Supabase CLI.
+Apply the migrations in `supabase/migrations/` in order via Supabase's SQL editor, then
+deploy the Edge Functions in `supabase/functions/` with the Supabase CLI.
+
+### Build & submit
+
+```bash
+eas build  --platform ios --profile production
+eas submit --platform ios --profile production
+```
 
 ---
 
-## What I Learned
+## What I learned
 
-Most of the difficult problems in this project weren't in the product logic — they were in the infrastructure. Debugging RLS policies when Postgres gives you a vague recursion error with no stack trace, wiring gesture handlers so they work across the entire React tree, designing auth flows that don't hang when a network call takes too long on a tunnel connection. As a senior student shipping a real app to a real store for the first time, the gap between "it works on localhost" and "it passes App Review" turned out to be a significant part of the project.
+Most of the difficulty lived in the infrastructure, not the product. Debugging RLS
+policies when Postgres hands you a vague recursion error with no stack trace; wiring
+gesture handlers so they work across the entire React tree; designing auth flows that
+don't hang when a network call stalls on a tunnel connection. As a senior student
+shipping a real app to a real store for the first time, the distance between
+*"it works on localhost"* and *"it passes App Review"* turned out to be a real part of
+the project — and the part that taught the most.
 
 ---
 
