@@ -4,6 +4,8 @@ A location-aware iOS app for finding workout partners — at the gym or on a run
 
 Built end-to-end as a solo senior project: React Native frontend, Supabase backend, shipped via EAS to the App Store.
 
+**Live on the App Store:** https://apps.apple.com/us/app/gymstride/id6769993847
+
 ---
 
 ## Features
