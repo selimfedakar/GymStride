@@ -6,9 +6,11 @@ import { supabase } from './supabase'
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge:  true,
+    // shouldShowAlert was split into banner + list in expo-notifications (SDK 54)
+    shouldShowBanner: true,
+    shouldShowList:   true,
+    shouldPlaySound:  true,
+    shouldSetBadge:   true,
   }),
 })
 
@@ -42,12 +44,22 @@ export async function registerPushToken(profileId: string): Promise<void> {
 
   const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId })
 
+  // Composite key (profile_id, token) — keep one row per device so a user
+  // with multiple devices receives notifications on all of them.
   await supabase
     .from('push_tokens')
     .upsert(
       { profile_id: profileId, token, platform: Platform.OS },
-      { onConflict: 'profile_id' }
+      { onConflict: 'profile_id,token' }
     )
+
+  // This physical device now belongs to this account — release the token
+  // from any other profile it was previously registered under (re-login).
+  await supabase
+    .from('push_tokens')
+    .delete()
+    .eq('token', token)
+    .neq('profile_id', profileId)
 }
 
 // Call on sign-out so stale tokens don't accumulate
