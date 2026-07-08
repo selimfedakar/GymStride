@@ -36,8 +36,8 @@ Deno.serve(async (req) => {
 async function handleChatRequest(record: Record<string, any>) {
   const targetId = record.target_id as string
 
-  const token = await getToken(targetId)
-  if (!token) return
+  const tokens = await getTokens(targetId)
+  if (tokens.length === 0) return
 
   const { data: requester } = await supabase
     .from('profiles')
@@ -45,11 +45,11 @@ async function handleChatRequest(record: Record<string, any>) {
     .eq('id', record.requester_id)
     .single()
 
-  await sendPush(token, {
+  await Promise.all(tokens.map((token) => sendPush(token, {
     title: 'New Training Request 💪',
     body:  `${requester?.full_name ?? 'Someone'} wants to train with you`,
     data:  { type: 'chat_request', id: record.id },
-  })
+  })))
 }
 
 async function handleMessage(record: Record<string, any>) {
@@ -69,23 +69,24 @@ async function handleMessage(record: Record<string, any>) {
     .single()
 
   for (const { profile_id } of participants) {
-    const token = await getToken(profile_id)
-    if (!token) continue
-    await sendPush(token, {
-      title: sender?.full_name ?? 'New Message',
-      body:  record.content.length > 80 ? record.content.slice(0, 77) + '…' : record.content,
-      data:  { type: 'message', conversationId: record.conversation_id },
-    })
+    const tokens = await getTokens(profile_id)
+    for (const token of tokens) {
+      await sendPush(token, {
+        title: sender?.full_name ?? 'New Message',
+        body:  record.content.length > 80 ? record.content.slice(0, 77) + '…' : record.content,
+        data:  { type: 'message', conversationId: record.conversation_id },
+      })
+    }
   }
 }
 
-async function getToken(profileId: string): Promise<string | null> {
+// Returns all device tokens for a profile (a user may have several devices).
+async function getTokens(profileId: string): Promise<string[]> {
   const { data } = await supabase
     .from('push_tokens')
     .select('token')
     .eq('profile_id', profileId)
-    .single()
-  return data?.token ?? null
+  return (data ?? []).map((r: { token: string }) => r.token)
 }
 
 async function sendPush(token: string, notification: {
