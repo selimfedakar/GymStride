@@ -1,5 +1,5 @@
 import { supabase } from '../supabase'
-import type { Badge, ProfileBadge, WorkoutLogInsert } from '@/types/database'
+import type { Badge, ProfileBadge } from '@/types/database'
 
 export async function fetchAllBadges(): Promise<Badge[]> {
   const { data, error } = await supabase
@@ -39,11 +39,4 @@ export async function toggleBadge(profileId: string, badgeId: string): Promise<v
       .insert({ profile_id: profileId, badge_id: badgeId, is_earned: false })
     if (error) throw error
   }
-}
-
-export async function logWorkout(log: WorkoutLogInsert): Promise<void> {
-  const { error } = await supabase.from('workout_logs').insert(log)
-  if (error) throw error
-  // Badge evaluation is handled server-side via a Supabase Edge Function
-  // triggered on workout_logs INSERT
 }
