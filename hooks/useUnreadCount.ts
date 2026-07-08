@@ -11,6 +11,7 @@ export function useUnreadCount(): number {
 
     const profileId = profile.id
     let active = true
+    let channel: ReturnType<typeof supabase.channel> | null = null
 
     async function refresh() {
       const [reqResult, msgResult] = await Promise.all([
@@ -28,25 +29,44 @@ export function useUnreadCount(): number {
       if (active) setCount((reqResult.count ?? 0) + (msgResult.count ?? 0))
     }
 
-    refresh()
+    async function setup() {
+      await refresh()
+      if (!active) return
 
-    // Unique name per effect run — prevents "cannot add callbacks after subscribe()"
-    // which happens when a same-named channel is reused before removeChannel finishes.
-    const channel = supabase
-      .channel(`unread-${profileId}-${Date.now()}`)
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'chat_requests', filter: `target_id=eq.${profileId}` },
-        refresh,
-      )
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'messages' },
-        refresh,
-      )
-      .subscribe()
+      // Scope the messages subscription to the user's own conversations.
+      // Without this filter EVERY message insert in the system woke every
+      // client — a hard scaling wall. The `in` filter pushes that down to
+      // the realtime server so we only receive relevant events.
+      const { data: parts } = await supabase
+        .from('conversation_participants')
+        .select('conversation_id')
+        .eq('profile_id', profileId)
+      const convoIds = (parts ?? []).map((p) => p.conversation_id)
+
+      // Unique name per effect run — prevents "cannot add callbacks after
+      // subscribe()" when a same-named channel is reused before cleanup.
+      const ch = supabase
+        .channel(`unread-${profileId}-${Date.now()}`)
+        .on('postgres_changes',
+          { event: '*', schema: 'public', table: 'chat_requests', filter: `target_id=eq.${profileId}` },
+          refresh,
+        )
+      if (convoIds.length > 0) {
+        ch.on('postgres_changes',
+          { event: '*', schema: 'public', table: 'messages', filter: `conversation_id=in.(${convoIds.join(',')})` },
+          refresh,
+        )
+      }
+      ch.subscribe()
+      if (active) channel = ch
+      else supabase.removeChannel(ch)
+    }
+
+    setup()
 
     return () => {
       active = false
-      supabase.removeChannel(channel)
+      if (channel) supabase.removeChannel(channel)
     }
   }, [profile?.id])
 
