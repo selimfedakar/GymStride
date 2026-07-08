@@ -10,7 +10,14 @@ export interface PublicProfile {
   profile_photo_url: string | null
   location_name:     string | null
   experience_level:  ExperienceLevel
+  training_today:    string | null
   last_active_at:    string
+}
+
+// Toggles the caller's "training today" availability flag.
+export async function setTrainingToday(on: boolean): Promise<void> {
+  const { error } = await supabase.rpc('set_training_today', { p_on: on })
+  if (error) throw error
 }
 
 export async function fetchPublicProfile(profileId: string): Promise<{
@@ -23,7 +30,7 @@ export async function fetchPublicProfile(profileId: string): Promise<{
   const [profileRes, photosRes, badgesRes, gymRes, runRes] = await Promise.all([
     supabase
       .from('profiles')
-      .select('id,username,full_name,date_of_birth,bio,profile_photo_url,location_name,experience_level,last_active_at')
+      .select('id,username,full_name,date_of_birth,bio,profile_photo_url,location_name,experience_level,training_today,last_active_at')
       .eq('id', profileId)
       .maybeSingle(),
     supabase.from('profile_photos').select('*').eq('profile_id', profileId).order('position'),
@@ -81,6 +88,18 @@ export async function updateProfile(userId: string, updates: ProfileUpdate): Pro
     .single()
   if (error) throw error
   return data
+}
+
+// Updates the caller's discovery location. `lat`/`lng` optional: when
+// omitted (manual city with failed geocode) only the display name is saved.
+export async function updateMyLocation(
+  userId: string,
+  locationName: string,
+  coords?: { lat: number; lng: number },
+): Promise<Profile> {
+  const updates: ProfileUpdate = { location_name: locationName }
+  if (coords) updates.location = `POINT(${coords.lng} ${coords.lat})`
+  return updateProfile(userId, updates)
 }
 
 export async function upsertGymPreferences(prefs: Partial<GymPreferences> & { profile_id: string }): Promise<void> {
