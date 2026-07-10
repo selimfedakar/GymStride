@@ -6,33 +6,46 @@ import {
 import { useRouter, useFocusEffect } from 'expo-router'
 import { supabase } from '@/lib/supabase'
 import { fetchProfileBadges } from '@/lib/queries/badges'
-import { fetchProfile, fetchProfilePhotos } from '@/lib/queries/profile'
+import { fetchProfile, fetchProfilePhotos, setTrainingToday } from '@/lib/queries/profile'
+import { fetchMyStreak, fetchMyProgress } from '@/lib/queries/workouts'
 import { deregisterPushToken } from '@/lib/notifications'
 import { useAuthStore } from '@/store/auth'
+import { useProStore } from '@/store/pro'
 import { BadgePill } from '@/components/BadgePill'
 import { ProfilePhotos } from '@/components/ProfilePhotos'
+import { ActivityStrip } from '@/components/ActivityStrip'
+import { ProgressChart } from '@/components/ProgressChart'
 import { Colors } from '@/constants/colors'
+import { captureError } from '@/lib/analytics'
 import { calcAge } from '@/types/database'
 import type { ProfileBadge, Badge, ProfilePhoto } from '@/types/database'
+import type { StreakSummary, ProgressSummary } from '@/lib/queries/workouts'
 
 export default function ProfileScreen() {
   const router = useRouter()
   const { profile, setProfile, reset } = useAuthStore()
+  const isPro = useProStore((s) => s.isPro)
 
   const [badges,  setBadges]  = useState<(ProfileBadge & { badge: Badge })[]>([])
   const [photos,  setPhotos]  = useState<ProfilePhoto[]>([])
-  const [loading, setLoading] = useState(true)
+  const [streak,   setStreak]   = useState<StreakSummary | null>(null)
+  const [progress, setProgress] = useState<ProgressSummary | null>(null)
+  const [loading,  setLoading]  = useState(true)
 
   const loadData = useCallback(async () => {
     if (!profile) return
-    const [fresh, b, p] = await Promise.all([
-      fetchProfile(profile.id).catch(() => null),
-      fetchProfileBadges(profile.id).catch(() => []),
-      fetchProfilePhotos(profile.id).catch(() => []),
+    const [fresh, b, p, s, pr] = await Promise.all([
+      fetchProfile(profile.id).catch((e) => { captureError(e, { where: 'profile.fetchProfile' }); return null }),
+      fetchProfileBadges(profile.id).catch((e) => { captureError(e, { where: 'profile.fetchBadges' }); return [] }),
+      fetchProfilePhotos(profile.id).catch((e) => { captureError(e, { where: 'profile.fetchPhotos' }); return [] }),
+      fetchMyStreak().catch((e) => { captureError(e, { where: 'profile.fetchStreak' }); return null }),
+      fetchMyProgress().catch((e) => { captureError(e, { where: 'profile.fetchProgress' }); return null }),
     ])
     if (fresh) setProfile(fresh)
     setBadges(b)
     setPhotos(p)
+    setStreak(s)
+    setProgress(pr)
     setLoading(false)
   }, [profile?.id])
 
@@ -40,6 +53,22 @@ export default function ProfileScreen() {
     setLoading(true)
     loadData()
   }, [loadData]))
+
+  const todayISO = new Date().toISOString().slice(0, 10)
+  const trainingToday = profile?.training_today?.slice(0, 10) === todayISO
+
+  async function toggleTrainingToday() {
+    if (!profile) return
+    const next = !trainingToday
+    // Optimistic update
+    setProfile({ ...profile, training_today: next ? todayISO : null })
+    try {
+      await setTrainingToday(next)
+    } catch (e) {
+      captureError(e, { where: 'profile.trainingToday' })
+      setProfile({ ...profile, training_today: trainingToday ? todayISO : null })
+    }
+  }
 
   async function handleSignOut() {
     Alert.alert('Sign out', 'Are you sure?', [
@@ -106,6 +135,41 @@ export default function ProfileScreen() {
             </Text>
           </View>
         </View>
+
+        {/* Pro upsell / status */}
+        {isPro ? (
+          <View style={styles.proCard}>
+            <Text style={styles.proBadge}>✦ PRO</Text>
+            <Text style={styles.proText}>You're a GymStride Pro member</Text>
+          </View>
+        ) : (
+          <Pressable style={styles.proUpsell} onPress={() => router.push('/paywall')}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.proUpsellTitle}>Upgrade to Pro ✦</Text>
+              <Text style={styles.proUpsellSub}>Unlimited requests, advanced filters & more</Text>
+            </View>
+            <Text style={styles.proChevron}>›</Text>
+          </Pressable>
+        )}
+
+        {/* Training-today availability */}
+        <Pressable
+          style={[styles.trainingRow, trainingToday && styles.trainingRowActive]}
+          onPress={toggleTrainingToday}
+        >
+          <Text style={[styles.trainingText, trainingToday && styles.trainingTextActive]}>
+            {trainingToday ? '🔥 Training today' : '💤 Not training today'}
+          </Text>
+          <Text style={[styles.trainingToggle, trainingToday && styles.trainingTextActive]}>
+            {trainingToday ? 'On' : 'Tap to set'}
+          </Text>
+        </Pressable>
+
+        {/* Weekly activity + streak */}
+        {streak && <ActivityStrip streak={streak} />}
+
+        {/* Progress charts */}
+        {progress && <ProgressChart progress={progress} />}
 
         {/* Extra photos grid */}
         <ProfilePhotos
@@ -269,6 +333,47 @@ const styles = StyleSheet.create({
   addBadgesText: { color: Colors.muted, fontSize: 14 },
   badgeGroup:    { marginBottom: 14 },
   badgeGroupLabel: { fontSize: 14, color: Colors.muted, fontWeight: '600', marginBottom: 8 },
+  proCard: {
+    flexDirection:   'row',
+    alignItems:      'center',
+    gap:             10,
+    backgroundColor: Colors.primary + '15',
+    borderRadius:    14,
+    padding:         16,
+    borderWidth:     1,
+    borderColor:     Colors.primary + '50',
+    marginBottom:    20,
+  },
+  proBadge: { color: Colors.primary, fontWeight: '900', fontSize: 14, letterSpacing: 1 },
+  proText:  { color: Colors.text, fontSize: 14, fontWeight: '600' },
+  proUpsell: {
+    flexDirection:   'row',
+    alignItems:      'center',
+    backgroundColor: Colors.surface,
+    borderRadius:    14,
+    padding:         16,
+    borderWidth:     1,
+    borderColor:     Colors.primary + '50',
+    marginBottom:    20,
+  },
+  proUpsellTitle: { color: Colors.primary, fontSize: 16, fontWeight: '800' },
+  proUpsellSub:   { color: Colors.muted, fontSize: 13, marginTop: 2 },
+  proChevron:     { color: Colors.primary, fontSize: 24, fontWeight: '400' },
+  trainingRow: {
+    flexDirection:   'row',
+    justifyContent:  'space-between',
+    alignItems:      'center',
+    backgroundColor: Colors.surface,
+    borderRadius:    14,
+    padding:         16,
+    borderWidth:     1,
+    borderColor:     Colors.border,
+    marginBottom:    20,
+  },
+  trainingRowActive:  { borderColor: Colors.primary, backgroundColor: Colors.primary + '12' },
+  trainingText:       { color: Colors.text, fontSize: 15, fontWeight: '600' },
+  trainingToggle:     { color: Colors.muted, fontSize: 13 },
+  trainingTextActive: { color: Colors.primary },
   signOutBtn: {
     marginTop:   32,
     borderWidth:  1,
