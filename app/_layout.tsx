@@ -7,6 +7,14 @@ import { supabase } from '@/lib/supabase'
 import { fetchProfile } from '@/lib/queries/profile'
 import { registerPushToken, deregisterPushToken, onNotificationTap } from '@/lib/notifications'
 import { useAuthStore } from '@/store/auth'
+import {
+  initMonitoring, wrapRoot, identify, resetUser, track, captureError,
+} from '@/lib/analytics'
+import { configurePurchases } from '@/lib/purchases'
+import { useProStore } from '@/store/pro'
+
+// Initialise crash reporting + analytics before anything else renders.
+initMonitoring()
 
 const queryClient = new QueryClient()
 
@@ -33,19 +41,26 @@ function AuthGate() {
         setSession(newSession)
 
         if (newSession) {
-          const p = await withTimeout(fetchProfile(newSession.user.id), 5_000).catch(() => null)
+          const p = await withTimeout(fetchProfile(newSession.user.id), 5_000)
+            .catch((e) => { captureError(e, { where: 'fetchProfile', event }); return null })
           setProfile(p)
 
           if (p) {
-            registerPushToken(p.id).catch(() => null)
+            identify(p.id, { username: p.username, onboarded: p.onboarding_completed })
+            track('app_opened')
+            // Configure IAP for this user and refresh Pro entitlement
+            configurePurchases(p.id)
+            useProStore.getState().refresh().catch((e) => captureError(e, { where: 'pro.refresh' }))
+            registerPushToken(p.id).catch((e) => captureError(e, { where: 'registerPushToken' }))
             supabase.from('profiles')
               .update({ last_active_at: new Date().toISOString() })
               .eq('id', p.id)
-              .then(() => null)
+              .then(({ error }) => { if (error) captureError(error, { where: 'last_active_at' }) })
           }
         } else {
           const currentProfile = useAuthStore.getState().profile
-          if (currentProfile) deregisterPushToken(currentProfile.id).catch(() => null)
+          if (currentProfile) deregisterPushToken(currentProfile.id).catch((e) => captureError(e, { where: 'deregisterPushToken' }))
+          resetUser()
           reset()
         }
 
@@ -96,7 +111,7 @@ function AuthGate() {
   )
 }
 
-export default function RootLayout() {
+function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <QueryClientProvider client={queryClient}>
@@ -107,3 +122,5 @@ export default function RootLayout() {
     </GestureHandlerRootView>
   )
 }
+
+export default wrapRoot(RootLayout)
