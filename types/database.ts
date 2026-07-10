@@ -36,6 +36,7 @@ export interface Profile {
   is_active:            boolean
   is_admin:             boolean
   onboarding_completed: boolean
+  training_today:       string | null   // ISO date; matches CURRENT_DATE when "training today"
   last_active_at:       string
   created_at:        string
   updated_at:        string
@@ -97,6 +98,8 @@ export interface WorkoutLog {
   distance_km:  number | null
   logged_at:    string
   notes:        string | null
+  source:       string       // 'manual' | 'healthkit'
+  external_id:  string | null
 }
 
 export interface ChatRequest {
