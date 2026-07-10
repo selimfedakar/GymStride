@@ -23,6 +23,10 @@ export default function TabLayout() {
         options={{ title: 'Running', tabBarIcon: ({ color }) => <TabIcon emoji="🏃" color={color} /> }}
       />
       <Tabs.Screen
+        name="events"
+        options={{ title: 'Events', tabBarIcon: ({ color }) => <TabIcon emoji="📅" color={color} /> }}
+      />
+      <Tabs.Screen
         name="log"
         options={{
           title: 'Log',
