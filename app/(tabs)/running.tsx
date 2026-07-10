@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   View, Text, FlatList, Pressable, Modal,
   StyleSheet, SafeAreaView, ActivityIndicator, RefreshControl,
@@ -7,9 +7,21 @@ import { useRouter } from 'expo-router'
 import { useRunningBuddies } from '@/hooks/useRunningBuddies'
 import { BuddyCard } from '@/components/BuddyCard'
 import { NearbyPanel } from '@/components/NearbyPanel'
+import { BuddyMap } from '@/components/BuddyMap'
+import { fetchBuddyPins, type BuddyPin } from '@/lib/queries/discovery'
+import { track, captureError } from '@/lib/analytics'
 import { useAuthStore } from '@/store/auth'
+import { useProStore } from '@/store/pro'
 import { Colors } from '@/constants/colors'
 import type { RunType } from '@/types/database'
+
+// Max-pace options in seconds/km, displayed as mm:ss
+const PACE_OPTIONS = [
+  { label: '≤ 4:00', value: 240 },
+  { label: '≤ 5:00', value: 300 },
+  { label: '≤ 6:00', value: 360 },
+  { label: '≤ 7:00', value: 420 },
+]
 
 const RUN_FILTERS: { label: string; value: RunType | null }[] = [
   { label: 'All',        value: null        },
@@ -23,17 +35,32 @@ const RADIUS_OPTIONS = [10, 25, 50, 100]
 export default function RunningScreen() {
   const router         = useRouter()
   const sentRequestIds = useAuthStore((s) => s.sentRequestIds)
+  const isPro          = useProStore((s) => s.isPro)
 
   const [runType,     setRunType]     = useState<RunType | null>(null)
   const [radius,      setRadius]      = useState(50)
   const [showFilters, setShowFilters] = useState(false)
+  const [view,        setView]        = useState<'list' | 'map'>('list')
+  const [pins,        setPins]        = useState<BuddyPin[]>([])
+  const [pinsLoading, setPinsLoading] = useState(false)
+  const [sameCampus,  setSameCampus]  = useState(false)
+  const [maxPace,     setMaxPace]     = useState<number | null>(null)
 
   const {
     data, isLoading, isError,
     refetch, fetchNextPage, hasNextPage, isFetchingNextPage,
-  } = useRunningBuddies(radius, runType)
+  } = useRunningBuddies(radius, runType, { sameUniversity: sameCampus, maxPaceSeconds: isPro ? maxPace : null })
 
   const buddies = data?.pages.flat() ?? []
+
+  useEffect(() => {
+    if (view !== 'map') return
+    setPinsLoading(true)
+    fetchBuddyPins(radius, 'running')
+      .then(setPins)
+      .catch((e) => captureError(e, { where: 'running.pins' }))
+      .finally(() => setPinsLoading(false))
+  }, [view, radius])
 
   function goToProfile(profileId: string, distanceKm: number, badgeOverlap: number) {
     router.push(`/profile/${profileId}?distanceKm=${distanceKm}&badgeOverlap=${badgeOverlap}`)
@@ -46,9 +73,21 @@ export default function RunningScreen() {
           <Text style={styles.title}>Running Buddies</Text>
           <Text style={styles.sub}>Within {radius} km</Text>
         </View>
-        <Pressable style={styles.filterBtn} onPress={() => setShowFilters(true)}>
-          <Text style={styles.filterText}>Radius ⚙️</Text>
-        </Pressable>
+        <View style={styles.headerActions}>
+          <Pressable
+            style={styles.filterBtn}
+            onPress={() => {
+              const next = view === 'list' ? 'map' : 'list'
+              setView(next)
+              if (next === 'map') track('map_view_opened', { tab: 'running' })
+            }}
+          >
+            <Text style={styles.filterText}>{view === 'list' ? '🗺️ Map' : '☰ List'}</Text>
+          </Pressable>
+          <Pressable style={styles.filterBtn} onPress={() => setShowFilters(true)}>
+            <Text style={styles.filterText}>Radius ⚙️</Text>
+          </Pressable>
+        </View>
       </View>
 
       {/* Run type tabs */}
@@ -68,6 +107,23 @@ export default function RunningScreen() {
 
       {/* Content area */}
       <View style={styles.content}>
+        {view === 'map' ? (
+          pinsLoading ? (
+            <View style={styles.centered}>
+              <ActivityIndicator color={Colors.running} size="large" />
+            </View>
+          ) : (
+            <BuddyMap
+              pins={pins}
+              accent={Colors.running}
+              onPinPress={(id) => {
+                const pin = pins.find((p) => p.profile_id === id)
+                router.push(`/profile/${id}${pin ? `?distanceKm=${pin.distance_km}` : ''}`)
+              }}
+            />
+          )
+        ) : (
+        <>
         {isLoading && (
           <View style={styles.centered}>
             <ActivityIndicator color={Colors.running} size="large" />
@@ -129,6 +185,8 @@ export default function RunningScreen() {
             if (b) goToProfile(b.profile_id, b.distance_km, b.badge_overlap_count)
           }}
         />
+        </>
+        )}
       </View>
 
       {/* Radius Filter Modal */}
@@ -149,6 +207,37 @@ export default function RunningScreen() {
               </Pressable>
             ))}
           </View>
+
+          {/* Same campus (free) */}
+          <Pressable
+            style={[styles.campusRow, sameCampus && styles.optionActive]}
+            onPress={() => setSameCampus((v) => !v)}
+          >
+            <Text style={[styles.optionText, sameCampus && styles.optionTextActive]}>🎓 Same campus only</Text>
+            <Text style={[styles.optionText, sameCampus && styles.optionTextActive]}>{sameCampus ? 'On' : 'Off'}</Text>
+          </Pressable>
+
+          {/* Max pace (Pro) */}
+          <Text style={styles.sheetTitle}>
+            Max pace {!isPro && <Text style={styles.proTag}>PRO</Text>}
+          </Text>
+          <View style={styles.optionRow}>
+            {PACE_OPTIONS.map((p) => (
+              <Pressable
+                key={p.value}
+                style={[styles.optionChip, maxPace === p.value && isPro && styles.optionActive]}
+                onPress={() => {
+                  if (!isPro) { setShowFilters(false); router.push('/paywall'); return }
+                  setMaxPace((prev) => (prev === p.value ? null : p.value))
+                }}
+              >
+                <Text style={[styles.optionText, maxPace === p.value && isPro && styles.optionTextActive]}>
+                  {p.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+
           <Pressable
             style={styles.applyBtn}
             onPress={() => { setShowFilters(false); refetch() }}
@@ -183,6 +272,7 @@ const styles = StyleSheet.create({
     borderColor:     Colors.border,
   },
   filterText: { color: Colors.text, fontSize: 14, fontWeight: '600' },
+  headerActions: { flexDirection: 'row', gap: 8 },
   optionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   optionChip: {
     borderWidth: 1, borderColor: Colors.border, borderRadius: 10,
@@ -191,6 +281,17 @@ const styles = StyleSheet.create({
   optionActive:     { borderColor: Colors.running, backgroundColor: Colors.running + '25' },
   optionText:       { color: Colors.muted, fontSize: 14 },
   optionTextActive: { color: Colors.running, fontWeight: '700' },
+  campusRow: {
+    flexDirection:  'row',
+    justifyContent: 'space-between',
+    alignItems:     'center',
+    borderWidth:    1,
+    borderColor:    Colors.border,
+    borderRadius:   10,
+    paddingVertical:   12,
+    paddingHorizontal: 14,
+  },
+  proTag: { color: Colors.running, fontSize: 11, fontWeight: '900', letterSpacing: 0.5 },
   tabBar: {
     flexDirection:  'row',
     paddingHorizontal: 16,
