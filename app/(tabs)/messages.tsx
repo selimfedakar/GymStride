@@ -12,6 +12,8 @@ import {
   cancelChatRequest,
   type ConversationDetail,
 } from '@/lib/queries/messages'
+import { fetchBlockedIds } from '@/lib/queries/blocks'
+import { track, captureError } from '@/lib/analytics'
 import { useAuthStore } from '@/store/auth'
 import { Colors } from '@/constants/colors'
 import type { ChatRequest } from '@/types/database'
@@ -52,7 +54,7 @@ export default function MessagesScreen() {
 
   const load = useCallback(async () => {
     if (!profile) return
-    const [reqRes, sentRes, convoRes] = await Promise.all([
+    const [reqRes, sentRes, convoRes, blockedIds] = await Promise.all([
       supabase
         .from('chat_requests')
         .select('*, requester_profile:profiles!requester_id(full_name, profile_photo_url)')
@@ -65,9 +67,12 @@ export default function MessagesScreen() {
         .eq('requester_id', profile.id)
         .eq('status', 'pending')
         .order('created_at', { ascending: false }),
-      fetchConversationsWithDetails(profile.id).catch(() => [] as ConversationDetail[]),
+      fetchConversationsWithDetails(profile.id).catch((e) => { captureError(e, { where: 'messages.convos' }); return [] as ConversationDetail[] }),
+      fetchBlockedIds().catch((e) => { captureError(e, { where: 'messages.blocked' }); return [] as string[] }),
     ])
-    setRequests((reqRes.data ?? []) as ChatRequestWithProfile[])
+    const blocked = new Set(blockedIds)
+    // Hide requests from anyone the user has blocked (server also prunes pending ones)
+    setRequests(((reqRes.data ?? []) as ChatRequestWithProfile[]).filter((r) => !blocked.has(r.requester_id)))
     setSentPending((sentRes.data ?? []) as unknown as SentPendingRequest[])
     setConversations(convoRes)
     setLoading(false)
@@ -79,53 +84,75 @@ export default function MessagesScreen() {
     if (!profile?.id) return
     const pid = profile.id
     const channelName = `messages-tab-${pid}`
+    let channel: ReturnType<typeof supabase.channel> | null = null
+    let cancelled = false
 
-    // Pre-cleanup: remove any stale channel with this name before creating a fresh one.
-    // supabase.channel() returns the existing instance if the name already exists,
-    // so this safely evicts a previously subscribed-but-not-cleaned-up channel.
-    supabase.removeChannel(supabase.channel(channelName))
+    async function setup() {
+      // Scope the messages INSERT subscription to the user's own
+      // conversations instead of firing on every message system-wide.
+      const { data: parts } = await supabase
+        .from('conversation_participants')
+        .select('conversation_id')
+        .eq('profile_id', pid)
+      if (cancelled) return
+      const convoIds = (parts ?? []).map((p) => p.conversation_id)
 
-    const channel = supabase.channel(channelName)
+      // Pre-cleanup: evict any stale channel with this name first.
+      supabase.removeChannel(supabase.channel(channelName))
+      const ch = supabase.channel(channelName)
 
-    channel
-      .on('postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages' },
-        () => fetchConversationsWithDetails(pid).then(setConversations).catch(() => null),
-      )
-      .on('postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'chat_requests', filter: `target_id=eq.${pid}` },
-        () => supabase
-          .from('chat_requests')
-          .select('*, requester_profile:profiles!requester_id(full_name, profile_photo_url)')
-          .eq('target_id', pid)
-          .eq('status', 'pending')
-          .order('created_at', { ascending: false })
-          .then(({ data }) => setRequests((data ?? []) as ChatRequestWithProfile[])),
-      )
-      .on('postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'chat_requests', filter: `requester_id=eq.${pid}` },
-        () => Promise.all([
-          supabase
+      if (convoIds.length > 0) {
+        ch.on('postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=in.(${convoIds.join(',')})` },
+          () => fetchConversationsWithDetails(pid).then(setConversations).catch((e) => captureError(e, { where: 'messages.rt.convos' })),
+        )
+      }
+      ch
+        .on('postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'chat_requests', filter: `target_id=eq.${pid}` },
+          () => supabase
             .from('chat_requests')
-            .select('id, opening_message, created_at, target_profile:profiles!target_id(id, full_name, profile_photo_url)')
-            .eq('requester_id', pid)
+            .select('*, requester_profile:profiles!requester_id(full_name, profile_photo_url)')
+            .eq('target_id', pid)
             .eq('status', 'pending')
             .order('created_at', { ascending: false })
-            .then(({ data }) => setSentPending((data ?? []) as unknown as SentPendingRequest[])),
-          fetchConversationsWithDetails(pid).then(setConversations).catch(() => null),
-        ]).catch(() => null),
-      )
-      .subscribe()
+            .then(({ data }) => setRequests((data ?? []) as ChatRequestWithProfile[])),
+        )
+        .on('postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'chat_requests', filter: `requester_id=eq.${pid}` },
+          () => Promise.all([
+            supabase
+              .from('chat_requests')
+              .select('id, opening_message, created_at, target_profile:profiles!target_id(id, full_name, profile_photo_url)')
+              .eq('requester_id', pid)
+              .eq('status', 'pending')
+              .order('created_at', { ascending: false })
+              .then(({ data }) => setSentPending((data ?? []) as unknown as SentPendingRequest[])),
+            fetchConversationsWithDetails(pid).then(setConversations).catch((e) => captureError(e, { where: 'messages.rt.accept' })),
+          ]).catch((e) => captureError(e, { where: 'messages.rt.update' })),
+        )
+        .subscribe()
 
-    return () => { supabase.removeChannel(channel) }
+      if (cancelled) supabase.removeChannel(ch)
+      else channel = ch
+    }
+
+    setup()
+
+    return () => {
+      cancelled = true
+      if (channel) supabase.removeChannel(channel)
+    }
   }, [profile?.id])
 
   async function respond(requestId: string, accept: boolean) {
     setResponding(requestId)
-    const newConvoId = await respondToChatRequest(requestId, accept).catch(() => null)
+    const newConvoId = await respondToChatRequest(requestId, accept)
+      .catch((e) => { captureError(e, { where: 'messages.respond', accept }); return null })
     setRequests((prev) => prev.filter((r) => r.id !== requestId))
     setResponding(null)
     if (accept && newConvoId) {
+      track('chat_request_accepted')
       router.push(`/chat/${newConvoId}`)
       if (!reviewRequestedRef.current) {
         reviewRequestedRef.current = true
