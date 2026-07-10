@@ -16,7 +16,14 @@ import {
 import { useAuthStore } from '@/store/auth'
 import { MessageBubble } from '@/components/MessageBubble'
 import { Colors } from '@/constants/colors'
+import { track, captureError } from '@/lib/analytics'
 import type { Message } from '@/types/database'
+
+// Appends a message only if its id isn't already present — guards against
+// the double-render when a sent message arrives back over realtime too.
+function appendUnique(prev: Message[], msg: Message): Message[] {
+  return prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]
+}
 
 interface OtherProfile {
   id:       string
@@ -72,7 +79,7 @@ export default function ChatScreen() {
     ]).finally(() => setLoading(false))
 
     const msgChannel = subscribeToMessages(conversationId, (msg) => {
-      setMessages((prev) => [...prev, msg])
+      setMessages((prev) => appendUnique(prev, msg))
       if (msg.sender_id !== myId) {
         markMessagesRead(conversationId)
         setIsOtherTyping(false)
@@ -117,13 +124,19 @@ export default function ChatScreen() {
 
   async function handleSend() {
     const content = text.trim()
-    if (!content || !myId) return
+    if (!content || !myId || sending) return
+    // Optimistically clear the field, but keep the text so we can restore
+    // it if the send fails — otherwise a network error silently eats it.
     setText('')
     setSending(true)
     try {
       const msg = await sendMessage({ conversation_id: conversationId, sender_id: myId, content })
-      setMessages((prev) => [...prev, msg])
+      setMessages((prev) => appendUnique(prev, msg))
+      track('message_sent')
       setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50)
+    } catch (e) {
+      captureError(e, { where: 'chat.send' })
+      setText(content)   // restore the unsent text
     } finally {
       setSending(false)
     }
