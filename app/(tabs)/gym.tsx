@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   View, Text, FlatList, Pressable, Modal,
   StyleSheet, SafeAreaView, ActivityIndicator, RefreshControl,
@@ -7,26 +7,48 @@ import { useRouter } from 'expo-router'
 import { useGymBuddies } from '@/hooks/useGymBuddies'
 import { BuddyCard } from '@/components/BuddyCard'
 import { NearbyPanel } from '@/components/NearbyPanel'
+import { BuddyMap } from '@/components/BuddyMap'
+import { fetchBuddyPins, type BuddyPin } from '@/lib/queries/discovery'
+import { track, captureError } from '@/lib/analytics'
 import { useAuthStore } from '@/store/auth'
+import { useProStore } from '@/store/pro'
 import { Colors } from '@/constants/colors'
+import type { ExperienceLevel } from '@/types/database'
 
 const RADIUS_OPTIONS = [10, 25, 50, 100]
 const FREQ_OPTIONS   = [1, 2, 3, 4, 5]
+const EXPERIENCE_OPTIONS: ExperienceLevel[] = ['beginner', 'intermediate', 'advanced', 'elite']
 
 export default function GymScreen() {
   const router          = useRouter()
   const sentRequestIds  = useAuthStore((s) => s.sentRequestIds)
+  const isPro           = useProStore((s) => s.isPro)
 
   const [radius,      setRadius]      = useState(50)
   const [minFreq,     setMinFreq]     = useState(1)
   const [showFilters, setShowFilters] = useState(false)
+  const [view,        setView]        = useState<'list' | 'map'>('list')
+  const [pins,        setPins]        = useState<BuddyPin[]>([])
+  const [pinsLoading, setPinsLoading] = useState(false)
+  const [sameCampus,  setSameCampus]  = useState(false)
+  const [experience,  setExperience]  = useState<ExperienceLevel | null>(null)
 
   const {
     data, isLoading, isError, error,
     refetch, fetchNextPage, hasNextPage, isFetchingNextPage,
-  } = useGymBuddies(radius, minFreq)
+  } = useGymBuddies(radius, minFreq, { sameUniversity: sameCampus, experience: isPro ? experience : null })
 
   const buddies = data?.pages.flat() ?? []
+
+  // Load privacy-fuzzed pins whenever the map is shown or the radius changes.
+  useEffect(() => {
+    if (view !== 'map') return
+    setPinsLoading(true)
+    fetchBuddyPins(radius, 'gym')
+      .then(setPins)
+      .catch((e) => captureError(e, { where: 'gym.pins' }))
+      .finally(() => setPinsLoading(false))
+  }, [view, radius])
 
   function goToProfile(profileId: string, distanceKm: number, badgeOverlap: number) {
     router.push(`/profile/${profileId}?distanceKm=${distanceKm}&badgeOverlap=${badgeOverlap}`)
@@ -40,13 +62,42 @@ export default function GymScreen() {
           <Text style={styles.greeting}>Gym Buddies</Text>
           <Text style={styles.sub}>Within {radius} km · {minFreq}+ days/wk</Text>
         </View>
-        <Pressable style={styles.filterBtn} onPress={() => setShowFilters(true)}>
-          <Text style={styles.filterText}>Filters ⚙️</Text>
-        </Pressable>
+        <View style={styles.headerActions}>
+          <Pressable
+            style={styles.filterBtn}
+            onPress={() => {
+              const next = view === 'list' ? 'map' : 'list'
+              setView(next)
+              if (next === 'map') track('map_view_opened', { tab: 'gym' })
+            }}
+          >
+            <Text style={styles.filterText}>{view === 'list' ? '🗺️ Map' : '☰ List'}</Text>
+          </Pressable>
+          <Pressable style={styles.filterBtn} onPress={() => setShowFilters(true)}>
+            <Text style={styles.filterText}>Filters ⚙️</Text>
+          </Pressable>
+        </View>
       </View>
 
       {/* Content area */}
       <View style={styles.content}>
+        {view === 'map' ? (
+          pinsLoading ? (
+            <View style={styles.centered}>
+              <ActivityIndicator color={Colors.primary} size="large" />
+            </View>
+          ) : (
+            <BuddyMap
+              pins={pins}
+              accent={Colors.primary}
+              onPinPress={(id) => {
+                const pin = pins.find((p) => p.profile_id === id)
+                router.push(`/profile/${id}${pin ? `?distanceKm=${pin.distance_km}` : ''}`)
+              }}
+            />
+          )
+        ) : (
+        <>
         {isLoading && (
           <View style={styles.centered}>
             <ActivityIndicator color={Colors.primary} size="large" />
@@ -114,6 +165,8 @@ export default function GymScreen() {
             if (b) goToProfile(b.profile_id, b.distance_km, b.badge_overlap_count)
           }}
         />
+        </>
+        )}
       </View>
 
       {/* Filter Sheet */}
@@ -147,6 +200,36 @@ export default function GymScreen() {
               >
                 <Text style={[styles.optionText, minFreq === f && styles.optionTextActive]}>
                   {f}x
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+
+          {/* Same campus (free) */}
+          <Pressable
+            style={[styles.campusRow, sameCampus && styles.optionActive]}
+            onPress={() => setSameCampus((v) => !v)}
+          >
+            <Text style={[styles.optionText, sameCampus && styles.optionTextActive]}>🎓 Same campus only</Text>
+            <Text style={[styles.optionText, sameCampus && styles.optionTextActive]}>{sameCampus ? 'On' : 'Off'}</Text>
+          </Pressable>
+
+          {/* Experience (Pro) */}
+          <Text style={styles.sheetLabel}>
+            Experience {!isPro && <Text style={styles.proTag}>PRO</Text>}
+          </Text>
+          <View style={styles.optionRow}>
+            {EXPERIENCE_OPTIONS.map((e) => (
+              <Pressable
+                key={e}
+                style={[styles.optionChip, experience === e && isPro && styles.optionActive]}
+                onPress={() => {
+                  if (!isPro) { setShowFilters(false); router.push('/paywall'); return }
+                  setExperience((prev) => (prev === e ? null : e))
+                }}
+              >
+                <Text style={[styles.optionText, experience === e && isPro && styles.optionTextActive]}>
+                  {e.charAt(0).toUpperCase() + e.slice(1)}
                 </Text>
               </Pressable>
             ))}
@@ -188,6 +271,7 @@ const styles = StyleSheet.create({
     color:    Colors.muted,
     marginTop: 2,
   },
+  headerActions: { flexDirection: 'row', gap: 8 },
   filterBtn: {
     backgroundColor: Colors.surface,
     borderRadius:    10,
@@ -274,6 +358,19 @@ const styles = StyleSheet.create({
   },
   optionText:       { color: Colors.muted, fontSize: 14 },
   optionTextActive: { color: Colors.primary, fontWeight: '700' },
+  campusRow: {
+    flexDirection:  'row',
+    justifyContent: 'space-between',
+    alignItems:     'center',
+    borderWidth:    1,
+    borderColor:    Colors.border,
+    borderRadius:   10,
+    paddingVertical:   12,
+    paddingHorizontal: 14,
+  },
+  proTag: {
+    color: Colors.primary, fontSize: 11, fontWeight: '900', letterSpacing: 0.5,
+  },
   applyBtn: {
     backgroundColor: Colors.primary,
     borderRadius:    14,
