@@ -8,7 +8,10 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 import { supabase } from '@/lib/supabase'
 import { fetchPublicProfile, reportUser } from '@/lib/queries/profile'
 import { sendChatRequest, findConversationWithUser } from '@/lib/queries/messages'
+import { blockUser } from '@/lib/queries/blocks'
+import { track, captureError } from '@/lib/analytics'
 import { useAuthStore } from '@/store/auth'
+import { useProStore } from '@/store/pro'
 import { BadgePill } from '@/components/BadgePill'
 import { Colors } from '@/constants/colors'
 import { calcAge, formatPace } from '@/types/database'
@@ -41,6 +44,7 @@ export default function PublicProfileScreen() {
   const myProfile        = useAuthStore((s) => s.profile)
   const sentRequestIds   = useAuthStore((s) => s.sentRequestIds)
   const addSentRequestId = useAuthStore((s) => s.addSentRequestId)
+  const isPro            = useProStore((s) => s.isPro)
 
   const [data,           setData]           = useState<ProfileData | null>(null)
   const [loading,        setLoading]        = useState(true)
@@ -64,7 +68,8 @@ export default function PublicProfileScreen() {
 
   async function handleOpenModal() {
     if (!myProfile) return
-    if (!myProfile.is_admin) {
+    // Pro + admins bypass the free-tier daily cap.
+    if (!myProfile.is_admin && !isPro) {
       const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
       const { count } = await supabase
         .from('chat_requests')
@@ -74,7 +79,11 @@ export default function PublicProfileScreen() {
       if ((count ?? 0) >= 5) {
         Alert.alert(
           'Daily Limit Reached',
-          "You've reached your daily limit of 5 message requests. Please try again tomorrow."
+          "You've used your 5 free requests for today. Upgrade to GymStride Pro for unlimited requests.",
+          [
+            { text: 'Not now', style: 'cancel' },
+            { text: 'Go Pro', onPress: () => router.push('/paywall') },
+          ]
         )
         return
       }
@@ -92,6 +101,7 @@ export default function PublicProfileScreen() {
         opening_message: message.trim(),
       })
       addSentRequestId(profileId)
+      track('chat_request_sent', { badgeOverlap: overlap })
       setShowModal(false)
       setMessage('')
     } catch (e: any) {
@@ -108,6 +118,46 @@ export default function PublicProfileScreen() {
       }
     } finally {
       setSending(false)
+    }
+  }
+
+  function handleSafetyMenu() {
+    if (!data) return
+    const first = data.profile.full_name.split(' ')[0]
+    Alert.alert(
+      data.profile.full_name,
+      'Choose an action',
+      [
+        { text: `Block ${first}`, style: 'destructive', onPress: confirmBlock },
+        { text: 'Report profile', onPress: handleReport },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    )
+  }
+
+  function confirmBlock() {
+    if (!data) return
+    const first = data.profile.full_name.split(' ')[0]
+    Alert.alert(
+      `Block ${first}?`,
+      `${first} won't be able to see your profile, find you in discovery, or message you — and you won't see them. Any pending request between you is cancelled.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Block', style: 'destructive', onPress: doBlock },
+      ]
+    )
+  }
+
+  async function doBlock() {
+    if (!profileId) return
+    try {
+      await blockUser(profileId)
+      track('user_blocked')
+      Alert.alert('Blocked', 'You will no longer see or hear from this person.')
+      router.back()
+    } catch (e) {
+      captureError(e, { where: 'profile.block' })
+      Alert.alert('Error', 'Could not block this user. Please try again.')
     }
   }
 
@@ -130,8 +180,10 @@ export default function PublicProfileScreen() {
     if (!profileId) return
     try {
       await reportUser(profileId, reason)
+      track('user_reported', { reason })
       Alert.alert('Reported', 'Thank you. We will review this profile.')
-    } catch {
+    } catch (e) {
+      captureError(e, { where: 'profile.report' })
       Alert.alert('Error', 'Could not submit report. Please try again.')
     }
   }
@@ -205,6 +257,16 @@ export default function PublicProfileScreen() {
           )}
 
           <View style={styles.metaRow}>
+            {profile.training_today?.slice(0, 10) === new Date().toISOString().slice(0, 10) && (
+              <View style={[styles.metaChip, styles.overlapChip]}>
+                <Text style={[styles.metaText, styles.overlapText]}>🔥 Training today</Text>
+              </View>
+            )}
+            {myProfile?.experience_level === profile.experience_level && (
+              <View style={styles.metaChip}>
+                <Text style={styles.metaText}>⚡ Same level</Text>
+              </View>
+            )}
             {dist && (
               <View style={styles.metaChip}>
                 <Text style={styles.metaText}>📏 {dist} km away</Text>
@@ -289,6 +351,13 @@ export default function PublicProfileScreen() {
                   </Text>
                 </View>
               )}
+              {runningPrefs.preferred_time && (
+                <View style={[styles.chip, styles.runChip]}>
+                  <Text style={[styles.chipText, styles.runChipText]}>
+                    🕐 {runningPrefs.preferred_time}
+                  </Text>
+                </View>
+              )}
             </View>
           </View>
         )}
@@ -336,9 +405,9 @@ export default function PublicProfileScreen() {
           )}
         </View>
 
-        {/* Report link */}
-        <Pressable style={styles.reportLink} onPress={handleReport}>
-          <Text style={styles.reportLinkText}>Report this profile</Text>
+        {/* Safety: block or report */}
+        <Pressable style={styles.reportLink} onPress={handleSafetyMenu}>
+          <Text style={styles.reportLinkText}>Block or report this profile</Text>
         </Pressable>
       </ScrollView>
 
