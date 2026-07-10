@@ -12,11 +12,14 @@ import {
   upsertRunningPreferences,
   uploadProfilePhoto,
   fetchProfilePhotos,
+  updateMyLocation,
 } from '@/lib/queries/profile'
+import { resolveGpsLocation, resolveCityLocation, LocationPermissionError } from '@/lib/location'
 import { ProfilePhotos } from '@/components/ProfilePhotos'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/store/auth'
 import { Colors } from '@/constants/colors'
+import { track, captureError } from '@/lib/analytics'
 import type { ExperienceLevel, RunType, ProfilePhoto } from '@/types/database'
 
 const EXPERIENCE: ExperienceLevel[] = ['beginner', 'intermediate', 'advanced', 'elite']
@@ -47,10 +50,17 @@ export default function EditProfileScreen() {
   const [runTypes,    setRunTypes]    = useState<Set<RunType>>(new Set())
   const [paceMin,     setPaceMin]     = useState('')
   const [paceSec,     setPaceSec]     = useState('')
+  const [preferredTime, setPreferredTime] = useState<'morning' | 'afternoon' | 'evening' | null>(null)
 
   const [extraPhotos, setExtraPhotos] = useState<ProfilePhoto[]>([])
   const [saving,  setSaving]  = useState(false)
   const [error,   setError]   = useState<string | null>(null)
+
+  // Location (updated independently of the main Save button)
+  const [locName,    setLocName]    = useState<string | null>(profile?.location_name ?? null)
+  const [locSaving,  setLocSaving]  = useState(false)
+  const [locDenied,  setLocDenied]  = useState(false)
+  const [manualCity, setManualCity] = useState('')
 
   useEffect(() => {
     if (profile) {
@@ -125,6 +135,7 @@ export default function EditProfileScreen() {
           profile_id:              profile!.id,
           run_types:               [...runTypes],
           avg_pace_seconds_per_km: paceSeconds,
+          preferred_time:          preferredTime ?? undefined,
         })
       }
 
@@ -133,6 +144,52 @@ export default function EditProfileScreen() {
       setError(e.message)
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleUpdateGpsLocation() {
+    setLocSaving(true)
+    setLocDenied(false)
+    try {
+      const r = await resolveGpsLocation()
+      const updated = await updateMyLocation(profile!.id, r.name || 'My location', { lat: r.lat, lng: r.lng })
+      setProfile(updated)
+      setLocName(updated.location_name)
+      track('location_updated', { method: 'gps' })
+      Alert.alert('Location updated', r.name
+        ? `You're now discoverable around ${r.name}.`
+        : 'Your location has been saved.')
+    } catch (e: any) {
+      if (e instanceof LocationPermissionError) {
+        setLocDenied(true)
+      } else {
+        captureError(e, { where: 'edit.updateGpsLocation' })
+        Alert.alert('Error', 'Could not update your location. Please try again.')
+      }
+    } finally {
+      setLocSaving(false)
+    }
+  }
+
+  async function handleManualCity() {
+    const city = manualCity.trim()
+    if (!city) return
+    setLocSaving(true)
+    try {
+      const r = await resolveCityLocation(city)
+      const coords = 'lat' in r ? { lat: r.lat, lng: r.lng } : undefined
+      const updated = await updateMyLocation(profile!.id, r.name, coords)
+      setProfile(updated)
+      setLocName(updated.location_name)
+      setManualCity('')
+      setLocDenied(false)
+      track('location_updated', { method: 'manual' })
+      Alert.alert('Location updated', `You're now discoverable around ${r.name}.`)
+    } catch (e: any) {
+      captureError(e, { where: 'edit.manualCity' })
+      Alert.alert('Error', 'Could not update your location. Please try again.')
+    } finally {
+      setLocSaving(false)
     }
   }
 
@@ -330,6 +387,71 @@ export default function EditProfileScreen() {
           <Text style={styles.paceUnit}>/km</Text>
         </View>
 
+        <Label text="Preferred time" />
+        <View style={styles.chipRow}>
+          {(['morning', 'afternoon', 'evening'] as const).map((t) => (
+            <Pressable
+              key={t}
+              style={[styles.chip, preferredTime === t && styles.chipRunActive]}
+              onPress={() => setPreferredTime((prev) => (prev === t ? null : t))}
+            >
+              <Text style={[styles.chipText, preferredTime === t && styles.chipRunText]}>
+                {t.charAt(0).toUpperCase() + t.slice(1)}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        {/* Location */}
+        <SectionDivider title="📍 Location" />
+        <Text style={styles.photoHint}>
+          Moved cities? Update this so nearby buddies can find you.
+        </Text>
+
+        {locName && (
+          <View style={styles.locationCard}>
+            <Text style={styles.locationText}>📍 {locName}</Text>
+          </View>
+        )}
+
+        <Pressable
+          style={[styles.locationBtn, locSaving && styles.btnDisabled]}
+          onPress={handleUpdateGpsLocation}
+          disabled={locSaving}
+        >
+          {locSaving
+            ? <ActivityIndicator color={Colors.primary} />
+            : <Text style={styles.locationBtnText}>📍 Use my current location</Text>
+          }
+        </Pressable>
+
+        {locDenied && (
+          <View style={styles.deniedBox}>
+            <Text style={styles.deniedTitle}>Location access denied</Text>
+            <Text style={styles.deniedText}>
+              Enable location in Settings, or enter your city manually below.
+            </Text>
+            <View style={styles.manualRow}>
+              <TextInput
+                style={[styles.input, styles.manualInput]}
+                placeholder="City or neighborhood"
+                placeholderTextColor={Colors.muted}
+                value={manualCity}
+                onChangeText={setManualCity}
+                returnKeyType="done"
+                onSubmitEditing={handleManualCity}
+              />
+              <Pressable
+                style={[styles.manualBtn, (!manualCity.trim() || locSaving) && styles.btnDisabled]}
+                onPress={handleManualCity}
+                disabled={!manualCity.trim() || locSaving}
+              >
+                <Text style={styles.manualBtnText}>Use</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
         <Pressable
           style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
           onPress={handleSave}
@@ -339,6 +461,13 @@ export default function EditProfileScreen() {
             ? <ActivityIndicator color="#fff" />
             : <Text style={styles.saveBtnText}>Save Changes</Text>
           }
+        </Pressable>
+
+        {/* Safety */}
+        <SectionDivider title="🛡️ Safety" />
+        <Pressable style={styles.blockedBtn} onPress={() => router.push('/profile/blocked')}>
+          <Text style={styles.blockedBtnText}>Blocked Users</Text>
+          <Text style={styles.blockedChevron}>›</Text>
         </Pressable>
 
         {/* Danger zone */}
@@ -487,4 +616,59 @@ const styles = StyleSheet.create({
     fontSize:   16,
     fontWeight: '700',
   },
+  btnDisabled: { opacity: 0.5 },
+  locationCard: {
+    backgroundColor: Colors.surface,
+    borderRadius:    14,
+    padding:         16,
+    borderWidth:     1,
+    borderColor:     Colors.primary,
+    marginTop:       10,
+    marginBottom:    10,
+  },
+  locationText:   { color: Colors.text, fontSize: 15 },
+  locationBtn: {
+    backgroundColor: Colors.surface,
+    borderRadius:    14,
+    padding:         16,
+    alignItems:      'center',
+    borderWidth:     1,
+    borderColor:     Colors.border,
+    marginTop:       4,
+  },
+  locationBtnText: { color: Colors.primary, fontSize: 16, fontWeight: '600' },
+  deniedBox: {
+    marginTop:       12,
+    backgroundColor: Colors.surface,
+    borderRadius:    14,
+    padding:         16,
+    borderWidth:     1,
+    borderColor:     Colors.error + '40',
+    gap:             10,
+  },
+  deniedTitle: { color: Colors.error, fontSize: 14, fontWeight: '700' },
+  deniedText:  { color: Colors.muted, fontSize: 13, lineHeight: 19 },
+  manualRow:   { flexDirection: 'row', gap: 8 },
+  manualInput: { flex: 1 },
+  manualBtn: {
+    backgroundColor: Colors.primary,
+    borderRadius:    12,
+    paddingHorizontal: 18,
+    justifyContent:  'center',
+    alignItems:      'center',
+  },
+  manualBtnText: { color: Colors.text, fontWeight: '700', fontSize: 14 },
+  blockedBtn: {
+    flexDirection:  'row',
+    alignItems:     'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.surface,
+    borderRadius:   14,
+    padding:        16,
+    borderWidth:    1,
+    borderColor:    Colors.border,
+    marginTop:      10,
+  },
+  blockedBtnText: { color: Colors.text, fontSize: 15, fontWeight: '600' },
+  blockedChevron: { color: Colors.muted, fontSize: 22, fontWeight: '400' },
 })
