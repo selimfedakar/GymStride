@@ -4,10 +4,15 @@ import {
   StyleSheet, SafeAreaView, KeyboardAvoidingView,
   Platform, ActivityIndicator, Alert, ScrollView,
 } from 'react-native'
-import { insertWorkoutLog, fetchRecentLogs, evaluateAndAwardBadges } from '@/lib/queries/workouts'
+import { insertWorkoutLog, fetchRecentLogs, evaluateAndAwardBadges, fetchMyStreak } from '@/lib/queries/workouts'
 import { useAuthStore } from '@/store/auth'
 import { Colors } from '@/constants/colors'
+import { StreakCard } from '@/components/StreakCard'
+import { isHealthSupported, requestHealthAuthorization, importRunsFromHealth } from '@/lib/health'
+import { updateStreakWidget } from '@/lib/widget'
+import { track, captureError } from '@/lib/analytics'
 import type { WorkoutLog } from '@/types/database'
+import type { StreakSummary } from '@/lib/queries/workouts'
 
 type WorkoutType = 'gym' | 'long_run' | 'short_run' | 'sprint'
 
@@ -42,6 +47,8 @@ export default function LogScreen() {
   const [submitting, setSubmitting] = useState(false)
   const [recentLogs, setRecentLogs] = useState<WorkoutLog[]>([])
   const [logsLoading, setLogsLoading] = useState(true)
+  const [streak,      setStreak]      = useState<StreakSummary | null>(null)
+  const [importing,   setImporting]   = useState(false)
 
   useEffect(() => {
     if (!profile) return
@@ -50,8 +57,13 @@ export default function LogScreen() {
 
   async function loadLogs() {
     setLogsLoading(true)
-    const logs = await fetchRecentLogs(profile!.id, 10).catch(() => [])
+    const [logs, streakData] = await Promise.all([
+      fetchRecentLogs(profile!.id, 10).catch((e) => { captureError(e, { where: 'fetchRecentLogs' }); return [] }),
+      fetchMyStreak().catch((e) => { captureError(e, { where: 'fetchMyStreak' }); return null }),
+    ])
     setRecentLogs(logs)
+    setStreak(streakData)
+    if (streakData) updateStreakWidget(streakData.currentStreak, streakData.longestStreak)
     setLogsLoading(false)
   }
 
@@ -70,10 +82,12 @@ export default function LogScreen() {
       // Reset form
       setDistance('')
       setNotes('')
+      track('workout_logged', { type })
 
       // Check for newly earned badges
       const earned = await evaluateAndAwardBadges()
       if (earned.length > 0) {
+        earned.forEach((b) => track('badge_earned', { badge: b.badgeName }))
         const names = earned.map((b) => `🏅 ${b.badgeName}`).join('\n')
         Alert.alert(
           'Badge Earned! 🎉',
@@ -91,6 +105,29 @@ export default function LogScreen() {
     }
   }
 
+  async function handleImportHealth() {
+    if (!profile) return
+    setImporting(true)
+    try {
+      const authorized = await requestHealthAuthorization()
+      if (!authorized) {
+        Alert.alert('Apple Health', 'Enable Health access in Settings to import your runs.')
+        return
+      }
+      const count = await importRunsFromHealth(profile.id)
+      track('healthkit_imported', { count })
+      await loadLogs()
+      Alert.alert(
+        'Apple Health',
+        count > 0 ? `Imported ${count} run${count > 1 ? 's' : ''} 🏃` : 'No new runs to import.'
+      )
+    } catch {
+      Alert.alert('Apple Health', 'Could not import runs. Please try again.')
+    } finally {
+      setImporting(false)
+    }
+  }
+
   const selectedIsRun = WORKOUT_TYPES.find((t) => t.value === type)?.isRun ?? false
 
   return (
@@ -104,6 +141,9 @@ export default function LogScreen() {
           <Text style={styles.tagline}>
             Think of this as your training journal — log sets, weights, and notes. Share those PR attempts.
           </Text>
+
+          {/* Streak */}
+          {streak && <StreakCard streak={streak} />}
 
           {/* Type selector */}
           <Text style={styles.label}>Workout type</Text>
@@ -159,6 +199,20 @@ export default function LogScreen() {
               : <Text style={styles.btnText}>Log Workout ✓</Text>
             }
           </Pressable>
+
+          {/* Apple Health import (iOS only) */}
+          {isHealthSupported() && (
+            <Pressable
+              style={[styles.healthBtn, importing && styles.btnDisabled]}
+              onPress={handleImportHealth}
+              disabled={importing}
+            >
+              {importing
+                ? <ActivityIndicator color={Colors.running} />
+                : <Text style={styles.healthBtnText}>❤️ Import runs from Apple Health</Text>
+              }
+            </Pressable>
+          )}
 
           {/* Recent logs */}
           <Text style={styles.sectionTitle}>Recent Activity</Text>
@@ -274,6 +328,16 @@ const styles = StyleSheet.create({
     fontSize:   17,
     fontWeight: '700',
   },
+  healthBtn: {
+    marginTop:       14,
+    borderRadius:    14,
+    padding:         14,
+    alignItems:      'center',
+    borderWidth:     1,
+    borderColor:     Colors.running + '60',
+    backgroundColor: Colors.running + '12',
+  },
+  healthBtnText: { color: Colors.running, fontSize: 15, fontWeight: '600' },
   sectionTitle: {
     fontSize:    18,
     fontWeight:  '700',
