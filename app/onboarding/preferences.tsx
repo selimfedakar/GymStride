@@ -4,7 +4,7 @@ import {
   StyleSheet, Platform, ActivityIndicator,
 } from 'react-native'
 import { useRouter } from 'expo-router'
-import * as Location from 'expo-location'
+import { resolveGpsLocation, resolveCityLocation, LocationPermissionError } from '@/lib/location'
 import { upsertGymPreferences, upsertRunningPreferences, updateProfile } from '@/lib/queries/profile'
 import { useAuthStore } from '@/store/auth'
 import { StepProgress } from '@/components/StepProgress'
@@ -52,23 +52,14 @@ export default function OnboardingPreferencesScreen() {
     setLocLoading(true)
     setLocDenied(false)
     setError(null)
-    const { status } = await Location.requestForegroundPermissionsAsync()
-    if (status !== 'granted') {
-      setLocDenied(true)
-      setLocLoading(false)
-      return
-    }
     try {
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
-      const [address] = await Location.reverseGeocodeAsync({
-        latitude:  loc.coords.latitude,
-        longitude: loc.coords.longitude,
-      })
-      setCoords({ lat: loc.coords.latitude, lng: loc.coords.longitude })
-      const name = `${address.city ?? ''}, ${address.region ?? ''}`.trim().replace(/^,|,$/g, '')
-      setLocationName(name)
-    } catch {
-      setLocDenied(true)
+      const r = await resolveGpsLocation()
+      setCoords({ lat: r.lat, lng: r.lng })
+      setLocationName(r.name)
+    } catch (e) {
+      // Denied permission (or a fix failure) → offer the manual-city path
+      if (e instanceof LocationPermissionError) setLocDenied(true)
+      else setLocDenied(true)
     }
     setLocLoading(false)
   }
@@ -77,15 +68,9 @@ export default function OnboardingPreferencesScreen() {
     const city = manualCity.trim()
     if (!city) return
     setLocLoading(true)
-    try {
-      const results = await Location.geocodeAsync(city)
-      if (results.length > 0) {
-        setCoords({ lat: results[0].latitude, lng: results[0].longitude })
-      }
-      setLocationName(city)
-    } catch {
-      setLocationName(city)  // save name even if geocoding fails
-    }
+    const r = await resolveCityLocation(city)
+    if ('lat' in r) setCoords({ lat: r.lat, lng: r.lng })
+    setLocationName(r.name)
     setLocLoading(false)
   }
 
