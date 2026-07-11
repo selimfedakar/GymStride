@@ -140,13 +140,21 @@ gymstride/
 
 | Capability | State | Notes |
 |---|---|---|
-| Nearby discovery | Done | Location-aware, filtered by workout type. |
+| Nearby discovery | Done | Location-aware, filtered by workout type, list **or map**. |
 | Personal chat requests | Done | One request + a note; no cold follows. |
-| Real-time 1:1 messaging | Done | Supabase Realtime `INSERT` subscription, no polling. |
+| Real-time 1:1 messaging | Done | Supabase Realtime, scoped subscriptions, dedupe + send-retry. |
 | Accept / decline / cancel | Done | `SECURITY DEFINER` RPCs, RLS-guarded. |
 | Workout logging | Done | Gym · long run · short run · sprint. |
-| Streak badges | Done | Earned from logged workouts. |
-| Push notifications | Done | Edge Function → APNs on message / request. |
+| **Streaks** | v1.1 | Visible streak card + 7-day strip + home-screen widget. |
+| **Progress charts** | v1.1 | Weekly volume / run km, current-month totals. |
+| **Group events** | v1.1 | Create / join a group workout with its own group chat. |
+| **Block & safety** | v1.1 | Block user + management screen (Apple Guideline 1.2). |
+| **Update location anytime** | v1.1 | GPS or manual city, from Edit Profile. |
+| **Apple Health import** | v1.1 | Pull running workouts into the log (de-duplicated). |
+| **GymStride Pro** | v1.1 | RevenueCat subscription — unlimited requests + advanced filters. |
+| **Availability + matching** | v1.1 | "Training today" status, preferred time, same-campus / pace filters. |
+| Crash reporting + analytics | v1.1 | Sentry + PostHog behind env-guarded no-ops. |
+| Push notifications | Done | Edge Function → APNs; now multi-device per user. |
 | Row Level Security | Done | Every table; the database is the access layer. |
 | App Store release | Done | Live, passed App Review. |
 
@@ -161,6 +169,12 @@ gymstride/
 | Backend | Supabase — PostgreSQL, Auth, Realtime, Storage |
 | Client state | Zustand |
 | Server state | TanStack Query v5 |
+| Maps | react-native-maps (privacy-fuzzed pins) |
+| Charts | react-native-svg (hand-rolled) |
+| Payments | RevenueCat (react-native-purchases) |
+| Health | @kingstinct/react-native-healthkit |
+| Widgets | expo-apple-targets (WidgetKit) |
+| Observability | Sentry + PostHog |
 | Gestures | react-native-gesture-handler |
 | Keyboard | react-native-keyboard-controller |
 | Notifications | expo-notifications + APNs |
