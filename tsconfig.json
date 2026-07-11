@@ -6,5 +6,11 @@
     "paths": {
       "@/*": ["./*"]
     }
-  }
+  },
+  "exclude": [
+    "node_modules",
+    "dist",
+    "scripts",
+    "supabase"
+  ]
 }
