@@ -27,3 +27,9 @@ supabase/seed_review_account.sql
 
 # Internal notes (not for public repo)
 store-assets/
+
+# Local scratch / mockups (not for public repo)
+gymstride_mockup/
+gymstride_commiits.txt
+Ekran*.png
+*.bak
