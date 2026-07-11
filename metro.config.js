@@ -1,7 +1,9 @@
-const { getDefaultConfig } = require('expo/metro-config')
+// getSentryExpoConfig wraps Expo's default Metro config so Sentry can
+// upload source maps at build time. It is a drop-in for getDefaultConfig.
+const { getSentryExpoConfig } = require('@sentry/react-native/metro')
 const path = require('path')
 
-const config = getDefaultConfig(__dirname)
+const config = getSentryExpoConfig(__dirname)
 
 config.resolver.blockList = [
   new RegExp(`^${path.join(__dirname, 'supabase').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(/.*)?$`),
