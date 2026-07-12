@@ -9,6 +9,7 @@ import { upsertGymPreferences, upsertRunningPreferences, updateProfile } from '@
 import { useAuthStore } from '@/store/auth'
 import { StepProgress } from '@/components/StepProgress'
 import { Colors } from '@/constants/colors'
+import { track } from '@/lib/analytics'
 import type { RunType, ExperienceLevel, ProfileUpdate } from '@/types/database'
 
 const FREQUENCIES = [1, 2, 3, 4, 5, 6, 7]
@@ -110,6 +111,9 @@ export default function OnboardingPreferencesScreen() {
           avg_pace_seconds_per_km: paceSeconds,
         })
       }
+
+      track('location_updated', { source: 'onboarding', has_gps: !!coords })
+      track('onboarding_completed', { activity_type: activeTab, experience_level: experience ?? 'beginner' })
 
       router.replace('/(tabs)/gym')
     } catch (e: any) {

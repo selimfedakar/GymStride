@@ -18,10 +18,6 @@ const POSTHOG_KEY   = process.env.EXPO_PUBLIC_POSTHOG_KEY   ?? ''
 const POSTHOG_HOST  = process.env.EXPO_PUBLIC_POSTHOG_HOST  ?? 'https://us.i.posthog.com'
 const ENVIRONMENT   = __DEV__ ? 'development' : 'production'
 
-// Typed as any: the concrete PostHog type comes from the native package
-// once installed; the ambient shim declares the module loosely until then.
-let posthog: any = null
-
 // Analytics event names live in one place so screens can't typo them.
 export type AnalyticsEvent =
   | 'app_opened'
@@ -43,9 +39,19 @@ export type AnalyticsEvent =
   | 'healthkit_imported'
   | 'event_created'
   | 'event_joined'
+  | 'profile_viewed'
+
+// Singleton created eagerly so PostHogProvider can use it as the client prop.
+// Disabled when no key is configured (acts as a no-op, never throws).
+export const posthogClient = new PostHog(POSTHOG_KEY || 'placeholder', {
+  host:          POSTHOG_HOST,
+  disabled:      !POSTHOG_KEY,
+  flushAt:       20,
+  flushInterval: 10_000,
+})
 
 /**
- * Initialise Sentry + PostHog. Call once, as early as possible in
+ * Initialise Sentry crash reporting. Call once, as early as possible in
  * the app lifecycle (module scope of the root layout).
  */
 export function initMonitoring(): void {
@@ -60,21 +66,12 @@ export function initMonitoring(): void {
       attachStacktrace:   true,
     })
   }
-
-  if (POSTHOG_KEY) {
-    posthog = new PostHog(POSTHOG_KEY, {
-      host:                       POSTHOG_HOST,
-      // Flush a little more eagerly on mobile so events aren't lost on cold kills
-      flushAt:                    20,
-      flushInterval:              10_000,
-    })
-  }
 }
 
 /** Product-analytics event. Silently ignored if PostHog isn't configured. */
 export function track(event: AnalyticsEvent, properties?: Record<string, unknown>): void {
   try {
-    posthog?.capture(event, properties)
+    posthogClient.capture(event, properties)
   } catch {
     // analytics must never break a user flow
   }
@@ -85,7 +82,7 @@ export function track(event: AnalyticsEvent, properties?: Record<string, unknown
 /** Associate all future events + errors with a user id. */
 export function identify(userId: string, traits?: Record<string, unknown>): void {
   try {
-    posthog?.identify(userId, traits)
+    posthogClient.identify(userId, traits)
   } catch {}
   if (SENTRY_DSN) Sentry.setUser({ id: userId })
 }
@@ -93,7 +90,7 @@ export function identify(userId: string, traits?: Record<string, unknown>): void
 /** Clear user association (call on sign-out). */
 export function resetUser(): void {
   try {
-    posthog?.reset()
+    posthogClient.reset()
   } catch {}
   if (SENTRY_DSN) Sentry.setUser(null)
 }
