@@ -4,7 +4,9 @@
 // (see lib/widget.ts) so the widget shows the current 🔥 streak.
 module.exports = {
   type: 'widget',
-  name: 'GymStride Streak',
+  // No spaces — must match extra.eas.build.experimental.ios.appExtensions[0].targetName
+  // in app.json, or EAS can't find the target to sign ("Could not find target ... in project.pbxproj").
+  name: 'GymStrideStreak',
   icon: '../../assets/icon.png',
   colors: {
     $accent: '#FF6B35',
