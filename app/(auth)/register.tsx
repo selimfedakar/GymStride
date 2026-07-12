@@ -6,6 +6,7 @@ import {
 import { Link } from 'expo-router'
 import { supabase } from '@/lib/supabase'
 import { Colors } from '@/constants/colors'
+import { track, identify } from '@/lib/analytics'
 
 export default function RegisterScreen() {
   const [email,    setEmail]    = useState('')
@@ -33,6 +34,10 @@ export default function RegisterScreen() {
     if (e) {
       setError(e.message)
       return
+    }
+    track('signed_up')
+    if (data.user) {
+      identify(data.user.id, { $set_once: { registration_date: new Date().toISOString() } })
     }
     // Supabase may require email confirmation — session will be null until confirmed
     if (!data.session) setSent(true)

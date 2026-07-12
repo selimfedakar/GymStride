@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   View, Text, FlatList, Pressable, Modal,
   StyleSheet, SafeAreaView, ActivityIndicator, RefreshControl,
 } from 'react-native'
-import { useRouter } from 'expo-router'
+import { useRouter, useFocusEffect } from 'expo-router'
 import { useGymBuddies } from '@/hooks/useGymBuddies'
 import { BuddyCard } from '@/components/BuddyCard'
 import { NearbyPanel } from '@/components/NearbyPanel'
@@ -39,6 +39,10 @@ export default function GymScreen() {
   } = useGymBuddies(radius, minFreq, { sameUniversity: sameCampus, experience: isPro ? experience : null })
 
   const buddies = data?.pages.flat() ?? []
+
+  useFocusEffect(useCallback(() => {
+    track('discovery_viewed', { tab: 'gym' })
+  }, []))
 
   // Load privacy-fuzzed pins whenever the map is shown or the radius changes.
   useEffect(() => {

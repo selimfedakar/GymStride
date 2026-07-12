@@ -1,14 +1,15 @@
 import { useEffect, useRef } from 'react'
-import { Stack, useRouter, useSegments } from 'expo-router'
+import { Stack, useRouter, useSegments, usePathname, useGlobalSearchParams } from 'expo-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { KeyboardProvider } from 'react-native-keyboard-controller'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
+import { PostHogProvider } from 'posthog-react-native'
 import { supabase } from '@/lib/supabase'
 import { fetchProfile } from '@/lib/queries/profile'
 import { registerPushToken, deregisterPushToken, onNotificationTap } from '@/lib/notifications'
 import { useAuthStore } from '@/store/auth'
 import {
-  initMonitoring, wrapRoot, identify, resetUser, track, captureError,
+  initMonitoring, wrapRoot, identify, resetUser, track, captureError, posthogClient,
 } from '@/lib/analytics'
 import { configurePurchases } from '@/lib/purchases'
 import { useProStore } from '@/store/pro'
@@ -17,6 +18,25 @@ import { useProStore } from '@/store/pro'
 initMonitoring()
 
 const queryClient = new QueryClient()
+
+// Tracks screen changes for PostHog screen analytics with Expo Router.
+function ScreenTracker() {
+  const pathname = usePathname()
+  const params = useGlobalSearchParams()
+  const previousPathname = useRef<string | undefined>(undefined)
+
+  useEffect(() => {
+    if (previousPathname.current !== pathname) {
+      posthogClient.screen(pathname, {
+        previous_screen: previousPathname.current ?? null,
+        ...params,
+      })
+      previousPathname.current = pathname
+    }
+  }, [pathname, params])
+
+  return null
+}
 
 // Prevents a hung network call from blocking the loading gate indefinitely (tunnel mode safe)
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
@@ -114,11 +134,21 @@ function AuthGate() {
 function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <QueryClientProvider client={queryClient}>
-        <KeyboardProvider>
-          <AuthGate />
-        </KeyboardProvider>
-      </QueryClientProvider>
+      <PostHogProvider
+        client={posthogClient}
+        autocapture={{
+          captureScreens: false,
+          captureTouches: true,
+          propsToCapture: ['testID'],
+        }}
+      >
+        <QueryClientProvider client={queryClient}>
+          <KeyboardProvider>
+            <ScreenTracker />
+            <AuthGate />
+          </KeyboardProvider>
+        </QueryClientProvider>
+      </PostHogProvider>
     </GestureHandlerRootView>
   )
 }

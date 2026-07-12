@@ -66,6 +66,14 @@ export default function PublicProfileScreen() {
     ]).catch(() => null).finally(() => setLoading(false))
   }, [profileId])
 
+  useEffect(() => {
+    if (!data) return
+    track('profile_viewed', {
+      distance_km:   distanceKm ? parseFloat(distanceKm) : undefined,
+      badge_overlap: badgeOverlap ? parseInt(badgeOverlap, 10) : 0,
+    })
+  }, [data])
+
   async function handleOpenModal() {
     if (!myProfile) return
     // Pro + admins bypass the free-tier daily cap.
