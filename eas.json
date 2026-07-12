@@ -58,7 +58,7 @@
         "EXPO_PUBLIC_SUPABASE_URL": "https://vptaiwqwalxinyatybhm.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_Rqjnj1Ks6tcd8S95u7rtmw_gYl0RcjX",
         "EXPO_PUBLIC_SENTRY_DSN": "",
-        "EXPO_PUBLIC_POSTHOG_KEY": "",
+        "EXPO_PUBLIC_POSTHOG_KEY": "phc_BeVDdVERj7B8gfRAC7rc6DfLjUydTRyCjahe48hssAqW",
         "EXPO_PUBLIC_POSTHOG_HOST": "https://us.i.posthog.com",
         "EXPO_PUBLIC_REVENUECAT_IOS_KEY": "",
         "EXPO_PUBLIC_REVENUECAT_ANDROID_KEY": ""
