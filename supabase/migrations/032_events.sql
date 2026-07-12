@@ -92,7 +92,7 @@ CREATE OR REPLACE FUNCTION public.create_event(
 RETURNS UUID
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = ''
+SET search_path = public, extensions
 AS $$
 DECLARE
   v_id  UUID;
@@ -175,7 +175,7 @@ RETURNS TABLE (
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = ''
+SET search_path = public, extensions
 AS $$
 DECLARE
   v_uid UUID := auth.uid();
